@@ -4,6 +4,7 @@
 
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local CenterContainer = require("ui/widget/container/centercontainer")
+local datetime        = require("datetime")
 local LeftContainer   = require("ui/widget/container/leftcontainer")
 local RightContainer  = require("ui/widget/container/rightcontainer")
 local OverlapGroup    = require("ui/widget/overlapgroup")
@@ -166,7 +167,7 @@ end
 -- ---------------------------------------------------------------------------
 
 function M.getTopbarInfo()
-    local info = { time = os.date("%H:%M") }
+    local info = { time = datetime.secondsToHour(os.time(), G_reader_settings:isTrue("twelve_hour_clock")) }
 
     if hwHasBattery() then
         local ok_p, powerd = pcall(function() return Device:getPowerDevice() end)
