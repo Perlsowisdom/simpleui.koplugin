@@ -40,7 +40,7 @@ local BADGE_MARGIN = Screen:scaleBySize(3)
 
 local LABEL_H = UI.LABEL_H
 
-local _CLR_COVER_BORDER = Blitbuffer.gray(0.65)
+local _CLR_COVER_BORDER = Blitbuffer.gray(0.45)  -- matches section label text colour
 local _CLR_COVER_BG     = Blitbuffer.gray(0.88)
 local _CLR_LABEL_TEXT   = Blitbuffer.gray(0.45)
 
@@ -108,11 +108,19 @@ local function buildCoverCell(files, cover_override, coll_name, count)
 
     local cover
     if front_fp and lfs.attributes(front_fp, "mode") == "file" then
-        cover = getBookCover(front_fp, COLL_W, COLL_H)
+        local raw = getBookCover(front_fp, COLL_W, COLL_H)
+        if raw then
+            cover = FrameContainer:new{
+                bordersize = 1, color = _CLR_COVER_BORDER,
+                padding    = 0, margin = 0,
+                dimen      = Geom:new{ w = COLL_W, h = COLL_H },
+                raw,
+            }
+        end
     end
     if not cover then
         cover = FrameContainer:new{
-            bordersize = 2, color = _CLR_COVER_BORDER,
+            bordersize = 1, color = _CLR_COVER_BORDER,
             background = _CLR_COVER_BG, padding = 0,
             dimen      = Geom:new{ w = COLL_W, h = COLL_H },
             CenterContainer:new{

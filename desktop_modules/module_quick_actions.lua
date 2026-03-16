@@ -23,6 +23,7 @@ local Config          = require("config")
 
 local UI  = require("ui")
 local PAD = UI.PAD
+local LABEL_H = UI.LABEL_H
 
 local _CLR_BAR_FG = Blitbuffer.gray(0.75)
 
@@ -32,8 +33,6 @@ local FRAME_SZ   = ICON_SZ + FRAME_PAD * 2
 local CORNER_R   = Screen:scaleBySize(22)
 local LBL_SP     = Screen:scaleBySize(7)
 local LBL_H      = Screen:scaleBySize(20)
-local QA_TOP_PAD           = Screen:scaleBySize(28)
-local QA_TOP_PAD_NO_LABELS = Screen:scaleBySize(36)
 
 -- ---------------------------------------------------------------------------
 -- Custom QA id validity cache — module-level so it is built at most once per
@@ -177,7 +176,8 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn)
     end
 
     return FrameContainer:new{
-        bordersize = 0, padding = 0,
+        bordersize   = 0, padding = 0,
+        padding_top  = LABEL_H,
         padding_left = PAD + left_off,
         row,
     }
@@ -225,9 +225,7 @@ local function makeSlot(slot)
     function S.getHeight(ctx)
         local labels_key  = ctx.pfx .. slot_suffix .. "_labels"
         local show_labels = G_reader_settings:nilOrTrue(labels_key)
-        local col_h  = show_labels and (FRAME_SZ + LBL_SP + LBL_H) or FRAME_SZ
-        local qa_top = show_labels and QA_TOP_PAD or QA_TOP_PAD_NO_LABELS
-        return qa_top + col_h
+        return LABEL_H + (show_labels and (FRAME_SZ + LBL_SP + LBL_H) or FRAME_SZ)
     end
 
     function S.getMenuItems(ctx_menu)
@@ -248,8 +246,6 @@ M.sub_modules = { makeSlot(1), makeSlot(2), makeSlot(3) }
 
 -- Also expose layout constants for menu.lua (MAX_QA_ITEMS referenced there)
 M.FRAME_SZ             = FRAME_SZ
-M.QA_TOP_PAD           = QA_TOP_PAD
-M.QA_TOP_PAD_NO_LABELS = QA_TOP_PAD_NO_LABELS
 -- Invalidates the module-level custom-QA validity cache.
 -- Call after any change to "navbar_custom_qa_list" (delete, create, sanitize).
 M.invalidateCustomQACache = invalidateCustomQACache

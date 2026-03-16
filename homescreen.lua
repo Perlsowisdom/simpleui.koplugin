@@ -88,7 +88,7 @@ local function sectionLabel(text, w)
         _label_cache[key] = FrameContainer:new{
             bordersize = 0, padding = 0,
             padding_left = PAD, padding_right = PAD,
-            padding_top = UI.LABEL_PAD_TOP, padding_bottom = UI.LABEL_PAD_BOT,
+            padding_bottom = UI.LABEL_PAD_BOT,
             TextWidget:new{
                 text  = text,
                 face  = _LABEL_FACE,
@@ -297,7 +297,7 @@ function HomescreenWidget:_buildContent()
     -- ── Build body ───────────────────────────────────────────────────────────
     local body    = VerticalGroup:new{ align = "left" }
     local topbar_on = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
-    local top_pad   = topbar_on and PAD or (PAD * 2)
+    local top_pad   = topbar_on and MOD_GAP or (MOD_GAP * 2)
     body[#body+1]   = self:_vspan(top_pad)
 
     -- Single loop: build each module and add to body immediately.

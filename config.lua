@@ -717,25 +717,28 @@ local function _scaleBBToSlot(bb, target_w, target_h)
     local src_h = bb:getHeight()
     if src_w <= 0 or src_h <= 0 then return bb end
     if src_w == target_w and src_h == target_h then return bb end
-    local scale_factor = math.min(target_w / src_w, target_h / src_h)
-    local scaled_w = math.min(math.floor(src_w * scale_factor + 0.5), target_w)
-    local scaled_h = math.min(math.floor(src_h * scale_factor + 0.5), target_h)
+    -- Use math.max so the image fills the slot completely (cover crop),
+    -- rather than math.min which would letterbox/pillarbox with white bars.
+    local scale_factor = math.max(target_w / src_w, target_h / src_h)
+    local scaled_w = math.floor(src_w * scale_factor + 0.5)
+    local scaled_h = math.floor(src_h * scale_factor + 0.5)
     local ok_sc, scaled_bb = pcall(function()
         return RenderImage:scaleBlitBuffer(bb, scaled_w, scaled_h)
     end)
     if not (ok_sc and scaled_bb) then return bb end
     if scaled_w == target_w and scaled_h == target_h then return scaled_bb end
+    -- Crop the oversized scaled bitmap to target_w × target_h from the centre.
     local ok_blit, Blitbuffer = pcall(require, "ffi/blitbuffer")
     if not (ok_blit and Blitbuffer) then return scaled_bb end
     local ok_slot, slot_bb = pcall(function()
         return Blitbuffer.new(target_w, target_h, scaled_bb:getType())
     end)
     if not (ok_slot and slot_bb) then return scaled_bb end
-    pcall(function() slot_bb:fill(Blitbuffer.COLOR_WHITE) end)
-    local off_x = math.floor((target_w - scaled_w) / 2)
-    local off_y = math.floor((target_h - scaled_h) / 2)
+    -- src_x/src_y: offset into the scaled bitmap where the crop starts.
+    local src_x = math.floor((scaled_w - target_w) / 2)
+    local src_y = math.floor((scaled_h - target_h) / 2)
     pcall(function()
-        slot_bb:blitFrom(scaled_bb, off_x, off_y, 0, 0, scaled_w, scaled_h)
+        slot_bb:blitFrom(scaled_bb, 0, 0, src_x, src_y, target_w, target_h)
     end)
     pcall(function() scaled_bb:free() end)
     return slot_bb

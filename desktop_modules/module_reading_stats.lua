@@ -22,6 +22,7 @@ local Config          = require("config")
 local UI      = require("ui")
 local PAD     = UI.PAD
 local MOD_GAP = UI.MOD_GAP
+local LABEL_H = UI.LABEL_H
 
 local _CLR_TEXT_BLK  = Blitbuffer.COLOR_BLACK
 local _CLR_TEXT_SUB  = Blitbuffer.gray(0.45)
@@ -31,9 +32,6 @@ local RS_CORNER_R = Screen:scaleBySize(12)
 local RS_GAP      = Screen:scaleBySize(12)
 local RS_CARD_H   = Screen:scaleBySize(96)
 local RS_N_COLS   = 3
-
--- Top padding above the stats row (consistent with other modules that have no label).
-local TOP_PAD = UI.LABEL_H
 
 -- ---------------------------------------------------------------------------
 -- Stat map
@@ -314,14 +312,18 @@ function M.build(w, ctx)
         row[#row+1] = tappable
     end
 
-    return CenterContainer:new{
-        dimen = Geom:new{ w = w, h = RS_CARD_H },
-        row,
+    return FrameContainer:new{
+        bordersize  = 0, padding = 0,
+        padding_top = LABEL_H,
+        CenterContainer:new{
+            dimen = Geom:new{ w = w, h = RS_CARD_H },
+            row,
+        },
     }
 end
 
 function M.getHeight(_ctx)
-    return TOP_PAD + RS_CARD_H
+    return LABEL_H + RS_CARD_H
 end
 
 function M.getMenuItems(ctx_menu)

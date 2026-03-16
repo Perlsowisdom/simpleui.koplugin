@@ -35,9 +35,9 @@ local _dim = {}
 
 M.PAD           = Screen:scaleBySize(14)
 M.PAD2          = Screen:scaleBySize(8)
-M.MOD_GAP       = Screen:scaleBySize(15)
+M.MOD_GAP       = Screen:scaleBySize(23)   -- includes former LABEL_PAD_TOP (8px)
 M.SIDE_PAD      = Screen:scaleBySize(14)
-M.LABEL_PAD_TOP = M.PAD2                    -- padding_top  of sectionLabel
+M.LABEL_PAD_TOP = 0                         -- absorbed into MOD_GAP
 M.LABEL_PAD_BOT = M.PAD2                    -- padding_bottom of sectionLabel (was 4px, now 8px)
 M.LABEL_TEXT_H  = Screen:scaleBySize(16)    -- TextWidget height at SECTION_LABEL_SIZE
 M.LABEL_H       = M.LABEL_PAD_TOP + M.LABEL_PAD_BOT + M.LABEL_TEXT_H

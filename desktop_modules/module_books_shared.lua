@@ -34,7 +34,7 @@ SH.RB_GAP1   = _RB_GAP1
 SH.RB_BAR_H  = _RB_BAR_H
 SH.RB_GAP2   = _RB_GAP2
 
-local _CLR_COVER_BORDER = Blitbuffer.gray(0.7)
+local _CLR_COVER_BORDER = Blitbuffer.gray(0.45)  -- matches section label text colour
 local _CLR_COVER_BG     = Blitbuffer.gray(0.88)
 local _CLR_BAR_BG       = Blitbuffer.gray(0.15)
 local _CLR_BAR_FG       = Blitbuffer.gray(0.75)
@@ -73,7 +73,7 @@ end
 -- ---------------------------------------------------------------------------
 function SH.coverPlaceholder(title, w, h)
     return FrameContainer:new{
-        bordersize = 2, color = _CLR_COVER_BORDER,
+        bordersize = 1, color = _CLR_COVER_BORDER,
         background = _CLR_COVER_BG, padding = 0,
         dimen      = Geom:new{ w = w, h = h },
         require("ui/widget/container/centercontainer"):new{
@@ -102,7 +102,13 @@ function SH.getBookCover(filepath, w, h)
             scale_factor = 1,
         }
     end)
-    return ok and img or nil
+    if not (ok and img) then return nil end
+    return FrameContainer:new{
+        bordersize = 1, color = _CLR_COVER_BORDER,
+        padding    = 0, margin = 0,
+        dimen      = Geom:new{ w = w, h = h },
+        img,
+    }
 end
 
 -- ---------------------------------------------------------------------------
