@@ -80,13 +80,22 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
 
     local function modeItem(label, mode_value)
         return {
-            text         = label,
-            radio        = true,
-            checked_func = function() return Config.getNavbarMode() == mode_value end,
-            callback     = function()
-                G_reader_settings:saveSetting("navbar_mode", mode_value)
+            text           = label,
+            radio          = true,
+            keep_menu_open = true,
+            checked_func   = function() return Config.getNavbarMode() == mode_value end,
+            callback       = function()
+                Config.saveNavbarMode(mode_value)
                 plugin:_scheduleRebuild()
             end,
+        }
+    end
+
+    local function makeTypeMenu()
+        return {
+            modeItem(_("Icons") .. " + " .. _("Text"), "both"),
+            modeItem(_("Icons only"),                   "icons"),
+            modeItem(_("Text only"),                    "text"),
         }
     end
 
@@ -541,11 +550,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
             },
             {
                 text = _("Type"),
-                sub_item_table = {
-                    modeItem(_("Icons") .. " + " .. _("Text"), "both"),
-                    modeItem(_("Icons only"),                   "icons"),
-                    modeItem(_("Text only"),                    "text"),
-                },
+                sub_item_table_func = makeTypeMenu,
             },
             {
                 text_func = function()
