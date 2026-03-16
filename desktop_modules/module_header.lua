@@ -57,6 +57,7 @@ local _quotes_cache = nil
 -- Uses a fixed relative path — more robust than debug.getinfo on e-readers.
 local function loadQuotes()
     if _quotes_cache then return _quotes_cache end
+    math.randomseed(os.time())
     local _qpath = debug.getinfo(1, "S").source:match("^@(.+/)[^/]+$") or "./"
     local ok, data = pcall(dofile, _qpath .. "quotes.lua")
     if ok and type(data) == "table" and #data > 0 then
