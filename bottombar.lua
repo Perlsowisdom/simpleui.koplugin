@@ -937,9 +937,7 @@ function M.showPowerDialog(plugin)
                 plugin._power_dialog = nil
                 UIManager:close(d)
                 G_reader_settings:flush()
-                local ok_exit, ExitCode = pcall(require, "exitcode")
-                if not ok_exit then logger.warn("simpleui: exitcode module unavailable, using 85") end
-                UIManager:quit((ok_exit and ExitCode and ExitCode.restart) or 85)
+                UIManager:restartKOReader()
             end }},
             {{ text = _("Quit"), callback = function()
                 _quitting = true

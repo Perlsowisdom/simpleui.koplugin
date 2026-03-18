@@ -297,8 +297,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                         ok_text = _("Restart"), cancel_text = _("Later"),
                         ok_callback = function()
                             G_reader_settings:flush()
-                            local ok_exit, ExitCode = pcall(require, "exitcode")
-                            UIManager:quit((ok_exit and ExitCode and ExitCode.restart) or 85)
+                            UIManager:restartKOReader()
                         end,
                     })
                 end,
@@ -326,8 +325,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                     ok_text = _("Restart"), cancel_text = _("Later"),
                                     ok_callback = function()
                                         G_reader_settings:flush()
-                                        local ok_exit, ExitCode = pcall(require, "exitcode")
-                                        UIManager:quit((ok_exit and ExitCode and ExitCode.restart) or 85)
+                                        UIManager:restartKOReader()
                                     end,
                                 })
                             end,
@@ -486,8 +484,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                         ok_text = _("Restart"), cancel_text = _("Later"),
                         ok_callback = function()
                             G_reader_settings:flush()
-                            local ok_exit, ExitCode = pcall(require, "exitcode")
-                            UIManager:quit((ok_exit and ExitCode and ExitCode.restart) or 85)
+                            UIManager:restartKOReader()
                         end,
                     })
                 end,
@@ -538,8 +535,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                         ok_text = _("Restart"), cancel_text = _("Later"),
                         ok_callback = function()
                             G_reader_settings:flush()
-                            local ok_exit, ExitCode = pcall(require, "exitcode")
-                            UIManager:quit((ok_exit and ExitCode and ExitCode.restart) or 85)
+                            UIManager:restartKOReader()
                         end,
                     })
                 end,
@@ -761,8 +757,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                         ok_text     = _("Restart"),
                         cancel_text = _("Later"),
                         ok_callback = function()
-                            local ok_exit, ExitCode = pcall(require, "exitcode")
-                            UIManager:quit((ok_exit and ExitCode and ExitCode.restart) or 85)
+                            UIManager:restartKOReader()
                         end,
                     })
                 end,
@@ -1648,8 +1643,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                         text        = string.format(_("Simple UI will be %s after restart.\n\nRestart now?"), on and _("disabled") or _("enabled")),
                         ok_text     = _("Restart"), cancel_text = _("Later"),
                         ok_callback = function()
-                            local ok_exit, ExitCode = pcall(require, "exitcode")
-                            UIManager:quit((ok_exit and ExitCode and ExitCode.restart) or 85)
+                            UIManager:restartKOReader()
                         end,
                     })
                 end,

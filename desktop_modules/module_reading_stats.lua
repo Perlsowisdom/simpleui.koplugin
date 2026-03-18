@@ -128,12 +128,10 @@ local function fetchAllStats(shared_conn)
         end
 
         r.total_secs  = tonumber(conn:rowexec("SELECT sum(duration) FROM page_stat;")) or 0
-        -- Compute finished-book ratio live from the page_stat VIEW rather than
-        -- using book.total_read_pages (a snapshot written at insertDB time).
-        -- The VIEW rescales page numbers to book.pages at query time, so the
-        -- ratio count(DISTINCT page)/pages is always consistent with the current
-        -- page count — even if the file was updated and re-indexed since the last
-        -- reading session.
+        -- Compute finished-book ratio live from page_stat.
+        -- A book counts as finished (all-time) if ≥90% of its pages were read
+        -- (distinct pages visited) OR the highest page reached is ≥90% of the
+        -- total — mirrors the reading_goals criterion so both modules agree.
         r.total_books = tonumber(conn:rowexec([[
             SELECT count(*) FROM (
                 SELECT b.id
@@ -142,6 +140,7 @@ local function fetchAllStats(shared_conn)
                 WHERE b.pages > 0
                 GROUP BY b.id
                 HAVING count(DISTINCT ps.page) * 1.0 / b.pages >= 0.90
+                    OR MAX(CAST(ps.page AS INTEGER)) * 1.0 / b.pages >= 0.90
             )]])) or 0
 
         -- Streak query rewritten to avoid LIMIT inside a CTE — not supported by
