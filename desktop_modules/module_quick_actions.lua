@@ -10,6 +10,7 @@ local Font            = require("ui/font")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local Geom            = require("ui/geometry")
 local GestureRange    = require("ui/gesturerange")
+local UIManager       = require("ui/uimanager")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan  = require("ui/widget/horizontalspan")
 local ImageWidget     = require("ui/widget/imagewidget")
@@ -19,82 +20,62 @@ local VerticalGroup   = require("ui/widget/verticalgroup")
 local VerticalSpan    = require("ui/widget/verticalspan")
 local Screen          = Device.screen
 local _               = require("gettext")
-local Config          = require("config")
+local Config          = require("sui_config")
+local QA              = require("sui_quickactions")
 
-local UI  = require("ui")
+local UI  = require("sui_core")
 local PAD = UI.PAD
 local LABEL_H = UI.LABEL_H
 
 local _CLR_BAR_FG = Blitbuffer.gray(0.75)
 
-local ICON_SZ    = Screen:scaleBySize(52)
-local FRAME_PAD  = Screen:scaleBySize(18)
-local FRAME_SZ   = ICON_SZ + FRAME_PAD * 2
-local CORNER_R   = Screen:scaleBySize(22)
-local LBL_SP     = Screen:scaleBySize(7)
-local LBL_H      = Screen:scaleBySize(20)
+local _BASE_ICON_SZ   = Screen:scaleBySize(52)
+local _BASE_FRAME_PAD = Screen:scaleBySize(18)
+local _BASE_CORNER_R  = Screen:scaleBySize(22)
+local _BASE_LBL_SP    = Screen:scaleBySize(7)
+local _BASE_LBL_H     = Screen:scaleBySize(20)
+local _BASE_LBL_FS    = Screen:scaleBySize(9)
+
+local function _getQADims(scale)
+    scale = scale or 1.0
+    local icon_sz   = math.max(16, math.floor(_BASE_ICON_SZ   * scale))
+    local frame_pad = math.max(4,  math.floor(_BASE_FRAME_PAD * scale))
+    local lbl_sp    = math.max(1,  math.floor(_BASE_LBL_SP    * scale))
+    local lbl_h     = math.max(8,  math.floor(_BASE_LBL_H     * scale))
+    return {
+        icon_sz   = icon_sz,
+        frame_pad = frame_pad,
+        frame_sz  = icon_sz + frame_pad * 2,
+        corner_r  = math.max(4, math.floor(_BASE_CORNER_R * scale)),
+        lbl_sp    = lbl_sp,
+        lbl_h     = lbl_h,
+        lbl_fs    = math.max(6, math.floor(_BASE_LBL_FS * scale)),
+    }
+end
 
 -- ---------------------------------------------------------------------------
--- Custom QA id validity cache — module-level so it is built at most once per
--- render cycle (previously rebuilt inside buildQAWidget per slot per call).
--- Invalidated by invalidateCustomQACache() which is called whenever the
--- master list changes (deletion, creation, sanitize).
+-- Action entry resolution and QA validity cache
+-- Delegated to sui_quickactions (single source of truth).
 -- ---------------------------------------------------------------------------
-local _custom_qa_valid       = nil   -- set<id> or nil (nil = stale)
 
-local function _buildCustomQAValid()
-    local list = G_reader_settings:readSetting("navbar_custom_qa_list") or {}
-    local s = {}
-    for _, id in ipairs(list) do s[id] = true end
-    _custom_qa_valid = s
+local function getEntry(action_id)
+    return QA.getEntry(action_id)
 end
 
 local function getCustomQAValid()
-    if not _custom_qa_valid then _buildCustomQAValid() end
-    return _custom_qa_valid
+    return QA.getCustomQAValid()
 end
 
 local function invalidateCustomQACache()
-    _custom_qa_valid = nil
-end
-
--- ---------------------------------------------------------------------------
--- Action entry resolution
--- ---------------------------------------------------------------------------
-local _STATIC_ACTION_MAP = {
-    home           = { icon = Config.ICON.library,     label = _("Library")     },
-    collections    = { icon = Config.ICON.collections, label = _("Collections") },
-    history        = { icon = Config.ICON.history,     label = _("History")     },
-    continue       = { icon = Config.ICON.continue_,   label = _("Continue")    },
-    favorites      = { icon = Config.ICON.ko_star,     label = _("Favorites")   },
-    frontlight     = { icon = Config.ICON.frontlight,  label = _("Brightness")  },
-    stats_calendar = { icon = Config.ICON.stats,       label = _("Stats")       },
-}
-
-local function getEntry(action_id)
-    if _STATIC_ACTION_MAP[action_id] then return _STATIC_ACTION_MAP[action_id] end
-    if action_id == "wifi_toggle" then
-        return { icon = Config.wifiIcon(), label = _("Wi-Fi") }
-    end
-    if tostring(action_id):match("^custom_qa_%d+$") then
-        local cfg = G_reader_settings:readSetting("navbar_cqa_" .. action_id) or {}
-        return {
-            icon  = cfg.icon or Config.ICON.custom,
-            label = cfg.label or action_id,
-        }
-    end
-    return { icon = Config.ICON.ko_home, label = action_id }
+    QA.invalidateCustomQACache()
 end
 
 -- ---------------------------------------------------------------------------
 -- Core widget builder (shared by all slots)
 -- ---------------------------------------------------------------------------
-local function buildQAWidget(w, action_ids, show_labels, on_tap_fn)
+local function buildQAWidget(w, action_ids, show_labels, on_tap_fn, d)
     if not action_ids or #action_ids == 0 then return nil end
 
-    -- Filter invalid custom QA ids using the module-level validity cache.
-    -- Previously each call rebuilt the set from settings — now it is shared
-    -- across all slots for the lifetime of a single render cycle.
     local valid_ids = {}
     local cqa_valid = getCustomQAValid()
     for _, aid in ipairs(action_ids) do
@@ -108,10 +89,10 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn)
 
     local n        = math.min(#valid_ids, 4)
     local inner_w  = w - PAD * 2
-    local lbl_h    = show_labels and LBL_H or 0
-    local lbl_sp   = show_labels and LBL_SP or 0
-    local gap      = n <= 1 and 0 or math.floor((inner_w - n * FRAME_SZ) / (n - 1))
-    local left_off = n == 1 and math.floor((inner_w - FRAME_SZ) / 2) or 0
+    local lbl_h    = show_labels and d.lbl_h or 0
+    local lbl_sp   = show_labels and d.lbl_sp or 0
+    local gap      = n <= 1 and 0 or math.floor((inner_w - n * d.frame_sz) / (n - 1))
+    local left_off = n == 1 and math.floor((inner_w - d.frame_sz) / 2) or 0
 
     local row = HorizontalGroup:new{ align = "top" }
 
@@ -120,15 +101,15 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn)
         local entry = getEntry(aid)
 
         local icon_frame = FrameContainer:new{
-            bordersize = Screen:scaleBySize(1),
+            bordersize = 1,
             color      = _CLR_BAR_FG,
             background = Blitbuffer.COLOR_WHITE,
-            radius     = CORNER_R,
-            padding    = FRAME_PAD,
+            radius     = d.corner_r,
+            padding    = d.frame_pad,
             ImageWidget:new{
                 file    = entry.icon,
-                width   = ICON_SZ,
-                height  = ICON_SZ,
+                width   = d.icon_sz,
+                height  = d.icon_sz,
                 is_icon = true,
                 alpha   = true,
             },
@@ -139,19 +120,19 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn)
         if show_labels then
             col[#col + 1] = VerticalSpan:new{ width = lbl_sp }
             col[#col + 1] = CenterContainer:new{
-                dimen = Geom:new{ w = FRAME_SZ, h = lbl_h },
+                dimen = Geom:new{ w = d.frame_sz, h = lbl_h },
                 TextWidget:new{
                     text    = entry.label,
-                    face    = Font:getFace("cfont", Screen:scaleBySize(9)),
+                    face    = Font:getFace("cfont", d.lbl_fs),
                     fgcolor = Blitbuffer.COLOR_BLACK,
-                    width   = FRAME_SZ,
+                    width   = d.frame_sz,
                 },
             }
         end
 
-        local col_h    = FRAME_SZ + lbl_sp + lbl_h
+        local col_h    = d.frame_sz + lbl_sp + lbl_h
         local tappable = InputContainer:new{
-            dimen      = Geom:new{ w = FRAME_SZ, h = col_h },
+            dimen      = Geom:new{ w = d.frame_sz, h = col_h },
             [1]        = col,
             _on_tap_fn = on_tap_fn,
             _action_id = aid,
@@ -177,7 +158,7 @@ local function buildQAWidget(w, action_ids, show_labels, on_tap_fn)
 
     return FrameContainer:new{
         bordersize   = 0, padding = 0,
-        padding_top  = LABEL_H,
+        padding_top  = Config.getScaledLabelH(),
         padding_left = PAD + left_off,
         row,
     }
@@ -219,20 +200,49 @@ local function makeSlot(slot)
         local labels_key  = ctx.pfx .. slot_suffix .. "_labels"
         local qa_ids      = G_reader_settings:readSetting(items_key) or {}
         local show_labels = G_reader_settings:nilOrTrue(labels_key)
-        return buildQAWidget(w, qa_ids, show_labels, ctx.on_qa_tap)
+        local d           = _getQADims(Config.getModuleScale(S.id, ctx.pfx))
+        -- Apply independent label text scale.
+        local lbl_scale = Config.getItemLabelScale(S.id, ctx.pfx)
+        d.lbl_fs = math.max(6, math.floor(d.lbl_fs * lbl_scale))
+        return buildQAWidget(w, qa_ids, show_labels, ctx.on_qa_tap, d)
     end
 
     function S.getHeight(ctx)
         local labels_key  = ctx.pfx .. slot_suffix .. "_labels"
         local show_labels = G_reader_settings:nilOrTrue(labels_key)
-        return LABEL_H + (show_labels and (FRAME_SZ + LBL_SP + LBL_H) or FRAME_SZ)
+        local d           = _getQADims(Config.getModuleScale(S.id, ctx.pfx))
+        return Config.getScaledLabelH() + (show_labels and (d.frame_sz + d.lbl_sp + d.lbl_h) or d.frame_sz)
     end
 
     function S.getMenuItems(ctx_menu)
+        local pfx     = ctx_menu.pfx
+        local refresh = ctx_menu.refresh
+        local _lc     = ctx_menu._
+        local items = {}
+        -- Scale first, with separator before the QA action items.
+        items[#items + 1] = Config.makeScaleItem({
+            text_func    = function() return _lc("Scale") end,
+            enabled_func = function() return not Config.isScaleLinked() end,
+            title        = _lc("Scale"),
+            info         = _lc("Scale for this module.\n100% is the default size."),
+            get          = function() return Config.getModuleScalePct(S.id, pfx) end,
+            set          = function(v) Config.setModuleScale(v, S.id, pfx) end,
+            refresh      = refresh,
+        })
+        items[#items + 1] = Config.makeScaleItem({
+            text_func = function() return _lc("Text Size") end,
+            separator = true,
+            title     = _lc("Text Size"),
+            info      = _lc("Scale for the button label text.\n100% is the default size."),
+            get       = function() return Config.getItemLabelScalePct(S.id, pfx) end,
+            set       = function(v) Config.setItemLabelScale(v, S.id, pfx) end,
+            refresh   = refresh,
+        })
         if type(ctx_menu.makeQAMenu) == "function" then
-            return ctx_menu.makeQAMenu(ctx_menu, slot)
+            local qa = ctx_menu.makeQAMenu(ctx_menu, slot) or {}
+            for _, v in ipairs(qa) do items[#items + 1] = v end
         end
-        return {}
+        return items
     end
 
     return S
@@ -244,10 +254,10 @@ end
 local M = {}
 M.sub_modules = { makeSlot(1), makeSlot(2), makeSlot(3) }
 
--- Also expose layout constants for menu.lua (MAX_QA_ITEMS referenced there)
-M.FRAME_SZ             = FRAME_SZ
--- Invalidates the module-level custom-QA validity cache.
--- Call after any change to "navbar_custom_qa_list" (delete, create, sanitize).
-M.invalidateCustomQACache = invalidateCustomQACache
+-- Expose base frame size for menu.lua (MAX_QA_ITEMS referenced there).
+-- Returns the 100%-scale value; callers that need the current scaled value
+-- should call _getQADims(Config.getModuleScale(...)).frame_sz directly.
+M.FRAME_SZ             = _BASE_ICON_SZ + _BASE_FRAME_PAD * 2
+M.invalidateCustomQACache = QA.invalidateCustomQACache
 
 return M

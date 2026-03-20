@@ -24,6 +24,7 @@ local Device          = require("device")
 local Font            = require("ui/font")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local Geom            = require("ui/geometry")
+local GestureRange    = require("ui/gesturerange")
 local InputContainer  = require("ui/widget/container/inputcontainer")
 local TextWidget      = require("ui/widget/textwidget")
 local TitleBar        = require("ui/widget/titlebar")
@@ -32,10 +33,10 @@ local VerticalGroup   = require("ui/widget/verticalgroup")
 local VerticalSpan    = require("ui/widget/verticalspan")
 local logger          = require("logger")
 local _               = require("gettext")
-local Config          = require("config")
+local Config          = require("sui_config")
 local Registry        = require("desktop_modules/moduleregistry")
 local Screen          = Device.screen
-local UI              = require("ui")
+local UI              = require("sui_core")
 
 -- ---------------------------------------------------------------------------
 -- Layout constants — sourced from ui.lua (single source of truth).
@@ -68,14 +69,11 @@ local _EMPTY_GAP      = Screen:scaleBySize(12)
 local _EMPTY_SUB_H    = Screen:scaleBySize(20)
 local _EMPTY_SUB_FS   = Screen:scaleBySize(13)
 
--- Section label font face — computed once, shared across all renders.
-local _LABEL_FACE = Font:getFace("smallinfofont", Screen:scaleBySize(SECTION_LABEL_SIZE))
+local _BASE_SECTION_LABEL_SIZE = Screen:scaleBySize(SECTION_LABEL_SIZE)
 
--- Section label cache: (text .. "|" .. inner_w) → FrameContainer.
--- Labels are constant strings at a fixed width — rebuilt only when inner_w
--- changes (e.g. screen rotation), not on every refresh.
--- invalidateLabelCache() is called from Homescreen.invalidateLabelCache()
--- which is wired into UI.invalidateDimCache() (fix #6).
+-- Section label cache: (text .. "|" .. inner_w .. "|" .. scale_pct) → FrameContainer.
+-- The scale_pct component invalidates cached widgets when the user changes
+-- label scale, without requiring a full cache wipe on every render.
 local _label_cache = {}
 
 local function invalidateLabelCache()
@@ -83,7 +81,11 @@ local function invalidateLabelCache()
 end
 
 local function sectionLabel(text, w)
-    local key = text .. "|" .. w
+    local scale     = require("sui_config").getLabelScale()
+    local fs        = math.max(8, math.floor(_BASE_SECTION_LABEL_SIZE * scale))
+    local label_h   = math.max(8, math.floor(Screen:scaleBySize(16) * scale))
+    local scale_pct = math.floor(scale * 100)  -- integer key — avoids float noise
+    local key = text .. "|" .. w .. "|" .. scale_pct
     if not _label_cache[key] then
         _label_cache[key] = FrameContainer:new{
             bordersize = 0, padding = 0,
@@ -91,9 +93,13 @@ local function sectionLabel(text, w)
             padding_bottom = UI.LABEL_PAD_BOT,
             TextWidget:new{
                 text  = text,
-                face  = _LABEL_FACE,
+                face  = Font:getFace("smallinfofont", fs),
                 bold  = true,
                 width = w - PAD * 2,
+                -- Explicitly set height so the container is sized correctly
+                -- even when the font engine rounds differently from label_h.
+                -- This keeps getHeight() and the actual render in sync.
+                height = label_h,
             },
         }
     end
@@ -155,6 +161,39 @@ local HomescreenWidget = InputContainer:extend{
 
 function HomescreenWidget:init()
     self.dimen = Geom:new{ w = Screen:getWidth(), h = Screen:getHeight() }
+
+    -- Block taps/holds that land on the bottom bar area so they are never
+    -- consumed by module InputContainers whose dimen extends into that area.
+    -- This ges_event is evaluated first (InputContainer processes own events
+    -- before propagating to children) and returns true to consume the event.
+    -- _navbar_content_h is set by patches.lua after init(); we use a lazy
+    -- function so it is read at gesture time, not at init time.
+    local function _in_bar(ges)
+        if not ges then return false end
+        local ch = self._navbar_content_h
+        if not ch then return false end
+        return ges.pos and ges.pos.y and ges.pos.y >= ch
+    end
+    self.ges_events = {
+        BlockNavbarTap = {
+            GestureRange:new{
+                ges   = "tap",
+                range = function() return self.dimen end,
+            },
+        },
+        BlockNavbarHold = {
+            GestureRange:new{
+                ges   = "hold",
+                range = function() return self.dimen end,
+            },
+        },
+    }
+    function self:onBlockNavbarTap(ges)
+        if _in_bar(ges) then return true end  -- consume; bar handles it
+    end
+    function self:onBlockNavbarHold(ges)
+        if _in_bar(ges) then return true end
+    end
 
     self.title_bar = TitleBar:new{
         show_parent             = self,
@@ -306,9 +345,43 @@ function HomescreenWidget:_buildContent()
     -- _header_body_idx records where the header widget lands in the body
     -- VerticalGroup so _clockTick can do a surgical swap without rebuilding
     -- the full page.
+    -- ctx_menu for hold-to-settings wrappers — built lazily on first hold,
+    -- then reused for the lifetime of this HomescreenWidget instance.
+    -- Stored on self so it is freed automatically when onCloseWidget nils state.
+    -- makeQAMenu is intentionally absent: module_quick_actions guards with
+    -- type(ctx_menu.makeQAMenu) == "function" before calling it.
+    local function _getHsCtxMenu(widget_self)
+        if widget_self._hs_ctx_menu then return widget_self._hs_ctx_menu end
+        local ctx = setmetatable({
+            pfx           = PFX,
+            pfx_qa        = PFX_QA,
+            refresh       = function()
+                local HS = package.loaded["sui_homescreen"]
+                if HS and HS._instance then HS._instance:_refresh(false) end
+            end,
+            UIManager     = UIManager,
+            _             = _,
+            MAX_LABEL_LEN = Config.MAX_LABEL_LEN,
+            _cover_picker = nil,
+        }, {
+            __index = function(t, k)
+                if k == "InfoMessage" then
+                    local v = require("ui/widget/infomessage")
+                    rawset(t, k, v); return v
+                elseif k == "SortWidget" then
+                    local v = require("ui/widget/sortwidget")
+                    rawset(t, k, v); return v
+                end
+            end,
+        })
+        widget_self._hs_ctx_menu = ctx
+        return ctx
+    end
+
     self._header_body_idx   = nil
     self._header_inner_w    = inner_w
     self._header_body_ref   = body
+    self._header_is_wrapped = false
     for _, mod in ipairs(enabled_mods) do
         local ok_w, widget = pcall(mod.build, inner_w, ctx)
         if not ok_w then
@@ -316,10 +389,55 @@ function HomescreenWidget:_buildContent()
                         .. tostring(mod.id) .. ": " .. tostring(widget))
         elseif widget then
             if mod.label then body[#body+1] = sectionLabel(mod.label, inner_w) end
+            -- Wrap modules that have settings in a hold-to-open-settings
+            -- InputContainer.  Modules without getMenuItems are added unwrapped.
+            local has_menu = type(mod.getMenuItems) == "function"
             if mod.id == "header" then
-                self._header_body_idx = #body + 1
+                self._header_body_idx  = #body + 1
+                self._header_is_wrapped = has_menu
             end
-            body[#body+1] = widget
+            if has_menu then
+                -- Capture mod in a local so the closure in onHoldModRelease
+                -- always refers to this iteration's module, not the loop var.
+                local _mod = mod
+                local wrapper = InputContainer:new{
+                    dimen = Geom:new{ w = inner_w, h = widget:getSize().h },
+                    widget,
+                }
+                wrapper.ges_events = {
+                    HoldMod = {
+                        GestureRange:new{
+                            ges   = "hold",
+                            range = function() return wrapper.dimen end,
+                        },
+                    },
+                    HoldModRelease = {
+                        GestureRange:new{
+                            ges   = "hold_release",
+                            range = function() return wrapper.dimen end,
+                        },
+                    },
+                }
+                function wrapper:onHoldMod() return true end  -- claim the hold
+                local _self = self  -- capture HomescreenWidget for the closure
+                function wrapper:onHoldModRelease()
+                    local Topbar    = require("sui_topbar")
+                    local Bottombar = require("sui_bottombar")
+                    local topbar_h  = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
+                                      and Topbar.TOTAL_TOP_H() or 0
+                    UI.showSettingsMenu(
+                        _mod.name or _mod.id,
+                        function() return _mod.getMenuItems(_getHsCtxMenu(_self)) end,
+                        topbar_h,
+                        Screen:getHeight(),
+                        Bottombar.TOTAL_H()
+                    )
+                    return true
+                end
+                body[#body+1] = wrapper
+            else
+                body[#body+1] = widget
+            end
             body[#body+1] = self:_vspan(MOD_GAP)
         end
     end
@@ -419,7 +537,14 @@ function HomescreenWidget:_clockTick()
         }
         local ok_w, new_hdr = pcall(hdr_mod.build, inner_w, ctx_hdr)
         if ok_w and new_hdr then
-            body[idx] = new_hdr
+            -- When the header was wrapped in a hold-settings InputContainer,
+            -- replace the inner slot [1] rather than the wrapper itself, so
+            -- the gesture handler stays alive across clock ticks.
+            if self._header_is_wrapped then
+                body[idx][1] = new_hdr
+            else
+                body[idx] = new_hdr
+            end
             UIManager:setDirty(self._navbar_container, "ui")
             return
         end
@@ -561,6 +686,8 @@ function HomescreenWidget:onCloseWidget()
     self._header_body_ref  = nil
     self._header_body_idx  = nil
     self._header_inner_w   = nil
+    self._header_is_wrapped = nil
+    self._hs_ctx_menu       = nil
     -- Free all cached cover bitmaps. We own these scaled copies (not the BIM),
     -- and it is safe to free them here because the widget tree has been torn
     -- down before onCloseWidget fires. On the next open, getCoverBB will

@@ -6,10 +6,10 @@ local Screen     = require("device").screen
 local logger     = require("logger")
 local _          = require("gettext")
 
-local Config    = require("config")
-local UI        = require("ui")
-local Bottombar = require("bottombar")
-local Titlebar  = require("titlebar")
+local Config    = require("sui_config")
+local UI        = require("sui_core")
+local Bottombar = require("sui_bottombar")
+local Titlebar  = require("sui_titlebar")
 
 local M = {}
 
@@ -31,6 +31,9 @@ local _hs_pending_after_reader = false
 -- Cached result of the "start_with == homescreen_simpleui" setting.
 -- nil means stale; invalidated in teardownAll and updated in patchStartWithMenu.
 local _start_with_hs = nil
+
+-- Navpager rebuild coalescence flag.
+local _navpager_rebuild_pending = false
 
 -- Returns true when "Start with Homescreen" is the active start_with value.
 -- Caches the result so UIManager.show and UIManager.close (hot paths) avoid
@@ -71,7 +74,7 @@ function M.patchFileManagerClass(plugin)
 
     FileManager.setupLayout = function(fm_self)
         local topbar_on = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
-        fm_self._navbar_height = Bottombar.TOTAL_H() + (topbar_on and require("topbar").TOTAL_TOP_H() or 0)
+        fm_self._navbar_height = Bottombar.TOTAL_H() + (topbar_on and require("sui_topbar").TOTAL_TOP_H() or 0)
 
         -- Patch FileChooser.init once on the class so repeated FM rebuilds
         -- don't re-wrap. Reduces height to the content area.
@@ -111,6 +114,7 @@ function M.patchFileManagerClass(plugin)
             UI.wrapWithNavbar(inner_widget, plugin.active_action, tabs)
         UI.applyNavbarState(fm_self, navbar_container, bar, topbar, bar_idx, topbar_on2, topbar_idx, tabs)
         fm_self[1] = wrapped
+        fm_self._simpleui_plugin = plugin
 
         plugin:_updateFMHomeIcon()
 
@@ -134,9 +138,9 @@ function M.patchFileManagerClass(plugin)
             if this._hs_autoopen_pending then
                 this._hs_autoopen_pending = nil
                 UIManager:scheduleIn(0, function()
-                    local HS = package.loaded["homescreen"]
+                    local HS = package.loaded["sui_homescreen"]
                     if not HS then
-                        local ok, m = pcall(require, "homescreen")
+                        local ok, m = pcall(require, "sui_homescreen")
                         HS = ok and m
                     end
                     if HS then
@@ -506,6 +510,13 @@ function M.patchUIManagerShow(plugin)
     end
 
     UIManager.show = function(um_self, widget, ...)
+        -- Fast path: the vast majority of show() calls are non-fullscreen
+        -- widgets (dialogs, menus, InfoMessage, toasts, etc.). None of the
+        -- SimpleUI injection logic applies to them — skip everything.
+        if not (widget and widget.covers_fullscreen) then
+            return orig_show(um_self, widget, ...)
+        end
+
         -- Capture varargs before the pcall closure; reuse _EMPTY when none present.
         local n_extra    = select("#", ...)
         local extra_args = n_extra > 0 and { ... } or _EMPTY
@@ -526,9 +537,9 @@ function M.patchUIManagerShow(plugin)
             else
                 orig_show(um_self, widget)
             end
-            local HS = package.loaded["homescreen"]
+            local HS = package.loaded["sui_homescreen"]
             if not HS then
-                local ok2, m = pcall(require, "homescreen")
+                local ok2, m = pcall(require, "sui_homescreen")
                 HS = ok2 and m
             end
             if HS and not HS._instance then
@@ -657,8 +668,16 @@ function M.patchUIManagerShow(plugin)
         local display_action = effective_action or action_before
         if not widget._navbar_inner then widget._navbar_inner = widget[1] end
 
+        -- For injected fullscreen widgets that are not pageable (e.g. homescreen,
+        -- collections), build the bar without navpager arrows immediately rather
+        -- than waiting for the scheduleIn(0) correction. This prevents the brief
+        -- flash of arrows that are immediately replaced, and avoids the window
+        -- where touch zones have no arrow but the visual still shows one.
+        local widget_is_pageable = (type(widget.page_num) == "number")
+                or (widget.file_chooser and type(widget.file_chooser.page_num) == "number")
         local navbar_container, wrapped, bar, topbar, bar_idx, topbar_on, topbar_idx =
-            UI.wrapWithNavbar(widget._navbar_inner, display_action, tabs)
+            UI.wrapWithNavbar(widget._navbar_inner, display_action, tabs,
+                not widget_is_pageable)
         UI.applyNavbarState(widget, navbar_container, bar, topbar, bar_idx, topbar_on, topbar_idx, tabs)
         widget._navbar_prev_action = action_before
         widget[1]                  = wrapped
@@ -734,6 +753,32 @@ function M.patchUIManagerShow(plugin)
         end
         UIManager:setDirty(widget[1], "ui")
 
+        -- Navpager: schedule an arrow update for the next event-loop cycle.
+        -- Skipped when a coalescence-flagged update is already queued.
+        if G_reader_settings:isTrue("navbar_navpager_enabled") and not _navpager_rebuild_pending then
+            logger.dbg("simpleui navpager: post-show update scheduled for widget=", tostring(widget.name))
+            _navpager_rebuild_pending = true
+            UIManager:scheduleIn(0, function()
+                _navpager_rebuild_pending = false
+                if not G_reader_settings:isTrue("navbar_navpager_enabled") then return end
+                local fm2 = plugin.ui
+                if not (fm2 and fm2._navbar_container) then return end
+                local has_prev, has_next = Config.getNavpagerState()
+                logger.dbg("simpleui navpager: post-show getNavpagerState =>",
+                    "has_prev=", tostring(has_prev), "has_next=", tostring(has_next))
+                local target2 = (widget._navbar_container and widget) or fm2
+                if not Bottombar.updateNavpagerArrows(target2, has_prev, has_next) then
+                    local tabs2 = Config.loadTabConfig()
+                    local mode2 = Config.getNavbarMode()
+                    local new_bar = Bottombar.buildBarWidgetWithArrows(
+                        plugin.active_action, tabs2, mode2, has_prev, has_next)
+                    logger.dbg("simpleui tz: post-show replaceBar target=", tostring(target2.name))
+                    Bottombar.replaceBar(target2, new_bar, tabs2)
+                end
+                UIManager:setDirty(target2, "ui")
+            end)
+        end
+
         end) -- end pcall
         _show_depth = _show_depth - 1
         if not ok then
@@ -745,7 +790,8 @@ function M.patchUIManagerShow(plugin)
         -- Excludes the FM itself: the FM opening the HS in onShow must not close it here.
         if _show_depth == 0 and widget and widget.covers_fullscreen
                 and widget.name ~= "homescreen"
-                and widget ~= plugin.ui then
+                and widget ~= plugin.ui
+                and not widget._sui_keep_homescreen then
             local stack = UI.getWindowStack()
             for _i, entry in ipairs(stack) do
                 local w = entry.widget
@@ -773,7 +819,7 @@ function M.patchUIManagerClose(plugin)
     -- Closes any orphaned non-fullscreen widgets, then shows the homescreen.
     -- Defined once at patch-install time, not re-created on every close() call.
     local function _doShowHS(fm, plugin_ref)
-        local HS = package.loaded["homescreen"]
+        local HS = package.loaded["sui_homescreen"]
         if not HS or HS._instance then return end
         -- Re-check the stack at execution time: between the scheduleIn(0) call
         -- and this function running, a new fullscreen widget (e.g. coll_list
@@ -871,7 +917,7 @@ function M.patchUIManagerClose(plugin)
         -- ever called explicitly. The event loop exits only when the stack empties.
         -- Without this, the HS remains on the stack and the app never terminates.
         if widget_is_fm then
-            local HS = package.loaded["homescreen"]
+            local HS = package.loaded["sui_homescreen"]
             local hs_inst = HS and HS._instance
             if hs_inst then
                 -- _navbar_closing_intentionally suppresses tab-restore and
@@ -911,12 +957,20 @@ function M.patchUIManagerClose(plugin)
             end
             if not other_open then
                 if widget.name == "ReaderUI" then
-                    -- Signal the next setupLayout to defer opening the HS until
-                    -- after the new FM instance is constructed, avoiding a flash.
-                    _hs_pending_after_reader = true
+                    -- Only re-open the HS when the reader is closing to return
+                    -- to the FM (tearing_down is nil). When tearing_down=true the
+                    -- reader is closing to open a *new* book — do NOT open the HS.
+                    if not widget.tearing_down then
+                        _hs_pending_after_reader = true
+                    end
                 else
                     UIManager:scheduleIn(0, function()
                         if UIManager._exit_code ~= nil then return end
+                        -- Do NOT open the HS if ReaderUI is still open
+                        -- (user closed a sub-menu like font settings, TOC, etc.
+                        -- while reading — they are still in the reader).
+                        local RUI = package.loaded["apps/reader/readerui"]
+                        if RUI and RUI.instance then return end
                         local FM3 = package.loaded["apps/filemanager/filemanager"]
                         local fm2 = FM3 and FM3.instance
                         if fm2 then _doShowHS(fm2, plugin) end
@@ -985,6 +1039,144 @@ function M.patchMenuInitForPagination(plugin)
 end
 
 -- ---------------------------------------------------------------------------
+-- Menu.updatePageInfo hook for Navpager
+-- When the navpager is active, rebuilds the bottom bar after every page
+-- change so the Prev/Next arrows reflect the new enabled/disabled state.
+-- This patch is lightweight: it only fires when navbar_navpager_enabled is
+-- true AND the menu's page or page_num has actually changed.
+-- ---------------------------------------------------------------------------
+
+function M.patchMenuForNavpager(plugin)
+    local Menu = require("ui/widget/menu")
+    -- Guard: don't double-patch if installAll is called again.
+    if Menu._simpleui_navpager_patched then return end
+    Menu._simpleui_navpager_patched = true
+
+    logger.dbg("simpleui navpager: patchMenuForNavpager installed")
+
+    -- _getNavbarTarget: returns the topmost fullscreen widget with a navbar,
+    -- falling back to fm. Fixes bar updates going to FM even when an injected
+    -- widget (Favorites, Collections…) is visible on top.
+    local function _getNavbarTarget(fm)
+        local UI    = require("sui_core")
+        local stack = UI.getWindowStack()
+        for i = #stack, 1, -1 do
+            local w = stack[i] and stack[i].widget
+            if w and w.covers_fullscreen and w._navbar_container then
+                return w
+            end
+        end
+        return fm
+    end
+    M._getNavbarTarget = _getNavbarTarget
+
+    -- _subtitleEnabled: true when the title-bar page subtitle should be shown.
+    -- Fires for navpager (original) OR the standalone pagination subtitle setting.
+    local function _subtitleEnabled()
+        return G_reader_settings:isTrue("navbar_navpager_enabled")
+            or G_reader_settings:isTrue("navbar_pagination_show_subtitle")
+    end
+    M._subtitleEnabled = _subtitleEnabled
+
+    local orig_updatePageInfo = Menu.updatePageInfo
+    plugin._orig_menu_update_page_info = orig_updatePageInfo
+
+    -- ---------------------------------------------------------------------------
+    -- Shared helper: set "Page X of Y" in a widget's title_bar subtitle.
+    -- Called from both the updatePageInfo hook (History/Collections/any Menu)
+    -- and from the FM updateTitleBarPath hook below.
+    -- Only runs when the navpager is enabled; no-ops otherwise.
+    -- ---------------------------------------------------------------------------
+    local function _setPageSubtitle(tb, page, page_num)
+        if not tb or not tb.subtitle_widget then return end
+        if not _subtitleEnabled() then return end
+        local T = require("ffi/util").template
+        if page_num > 1 then
+            tb:setSubTitle(T(_("Page %1 of %2"), page, page_num), true)
+        else
+            -- Single page or unknown — clear our addition, restore empty subtitle.
+            tb:setSubTitle("", true)
+        end
+    end
+    -- Expose so the FM hook (defined below) can reuse it.
+    M._setPageSubtitle = _setPageSubtitle
+
+    Menu.updatePageInfo = function(menu_self, select_number)
+        orig_updatePageInfo(menu_self, select_number)
+
+        if not _subtitleEnabled() then return end
+
+        logger.dbg("simpleui navpager: updatePageInfo fired name=",
+            tostring(menu_self.name),
+            "page=", tostring(menu_self.page),
+            "page_num=", tostring(menu_self.page_num))
+
+        -- Update the subtitle immediately (synchronous).
+        _setPageSubtitle(menu_self.title_bar, menu_self.page or 0, menu_self.page_num or 0)
+
+        -- Coalesce: skip if an update is already queued for this tick.
+        if _navpager_rebuild_pending then return end
+        _navpager_rebuild_pending = true
+
+        local UIManager = require("ui/uimanager")
+        UIManager:scheduleIn(0, function()
+            _navpager_rebuild_pending = false
+            if not G_reader_settings:isTrue("navbar_navpager_enabled") then return end
+            local Bottombar = require("sui_bottombar")
+            local Config    = require("sui_config")
+            local fm        = plugin.ui
+            if not (fm and fm._navbar_container) then return end
+
+            local has_prev, has_next = Config.getNavpagerState()
+            logger.dbg("simpleui navpager: scheduleIn updating arrows",
+                "has_prev=", tostring(has_prev), "has_next=", tostring(has_next))
+
+            local target = M._getNavbarTarget(fm)
+            if not Bottombar.updateNavpagerArrows(target, has_prev, has_next) then
+                local tabs = Config.loadTabConfig()
+                local mode = Config.getNavbarMode()
+                local new_bar = Bottombar.buildBarWidgetWithArrows(
+                    plugin.active_action, tabs, mode, has_prev, has_next)
+                logger.dbg("simpleui tz: updatePageInfo replaceBar target=", tostring(target.name))
+                Bottombar.replaceBar(target, new_bar, tabs)
+            end
+            UIManager:setDirty(target, "ui")
+        end)
+    end
+
+    -- ---------------------------------------------------------------------------
+    -- FM hook: append "— Page X of Y" to the path subtitle in the library view.
+    -- The FM uses updateTitleBarPath (aliased as onPathChanged) rather than
+    -- updatePageInfo, so we patch it separately on the FileManager class.
+    -- ---------------------------------------------------------------------------
+    local FileManager = package.loaded["apps/filemanager/filemanager"]
+        or require("apps/filemanager/filemanager")
+
+    local orig_updateTitleBarPath = FileManager.updateTitleBarPath
+    plugin._orig_fm_updateTitleBarPath = orig_updateTitleBarPath
+
+    FileManager.updateTitleBarPath = function(fm_self, path)
+        -- Call the original to set the path text first.
+        orig_updateTitleBarPath(fm_self, path)
+        -- Then append the page info if navpager is on.
+        if not _subtitleEnabled() then return end
+        local fc = fm_self.file_chooser
+        if not fc then return end
+        local tb = fm_self.title_bar
+        if not tb or not tb.subtitle_widget then return end
+        local page     = fc.page     or 0
+        local page_num = fc.page_num or 0
+        if page_num > 1 then
+            local T    = require("ffi/util").template
+            -- The original set the path text; now re-read it and append page info.
+            -- subtitle_widget.text is the raw string last passed to setText/init.
+            local base = tb.subtitle_widget.text or ""
+            tb:setSubTitle(base .. " — " .. T(_("Page %1 of %2"), page, page_num))
+        end
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- installAll / teardownAll
 -- ---------------------------------------------------------------------------
 
@@ -1017,7 +1209,7 @@ function M.showHSAfterResume(plugin)
     if not tabInTabs("homescreen", tabs) then return end
 
     -- Guard 4: HS must not already be open.
-    local HS = package.loaded["homescreen"]
+    local HS = package.loaded["sui_homescreen"]
     if HS and HS._instance then return end
 
     -- Guard 5: UIManager must not be shutting down.
@@ -1029,7 +1221,7 @@ function M.showHSAfterResume(plugin)
         if UIManager._exit_code ~= nil then return end
         local RUI2 = package.loaded["apps/reader/readerui"]
         if RUI2 and RUI2.instance then return end
-        local HS2 = package.loaded["homescreen"]
+        local HS2 = package.loaded["sui_homescreen"]
         if HS2 and HS2._instance then return end
 
         local FM = package.loaded["apps/filemanager/filemanager"]
@@ -1038,7 +1230,7 @@ function M.showHSAfterResume(plugin)
 
         -- Lazily load Homescreen if not yet in package.loaded.
         if not HS2 then
-            local ok, m = pcall(require, "homescreen")
+            local ok, m = pcall(require, "sui_homescreen")
             HS2 = ok and m
         end
         if not HS2 then return end
@@ -1066,6 +1258,13 @@ function M.installAll(plugin)
     M.patchUIManagerShow(plugin)
     M.patchUIManagerClose(plugin)
     M.patchMenuInitForPagination(plugin)
+    M.patchMenuForNavpager(plugin)
+    -- Folder covers + uniform proportions: patch MosaicMenuItem and MosaicMenu
+    -- unconditionally. Both features check their own settings per cell/call.
+    local ok_fc, FC = pcall(require, "sui_foldercovers")
+    if ok_fc and FC then
+        pcall(FC.install)
+    end
 end
 
 function M.teardownAll(plugin)
@@ -1087,6 +1286,16 @@ function M.teardownAll(plugin)
     if Menu then
         if plugin._orig_menu_new  then Menu.new  = plugin._orig_menu_new;  plugin._orig_menu_new  = nil end
         if plugin._orig_menu_init then Menu.init = plugin._orig_menu_init; plugin._orig_menu_init = nil end
+        if plugin._orig_menu_update_page_info then
+            Menu.updatePageInfo              = plugin._orig_menu_update_page_info
+            plugin._orig_menu_update_page_info = nil
+        end
+        Menu._simpleui_navpager_patched = nil
+    end
+    local FileManager2 = package.loaded["apps/filemanager/filemanager"]
+    if FileManager2 and plugin._orig_fm_updateTitleBarPath then
+        FileManager2.updateTitleBarPath = plugin._orig_fm_updateTitleBarPath
+        plugin._orig_fm_updateTitleBarPath = nil
     end
     local FMColl = package.loaded["apps/filemanager/filemanagercollection"]
     if FMColl and plugin._orig_fmcoll_show then
@@ -1122,12 +1331,17 @@ function M.teardownAll(plugin)
         FileManagerMenu._simpleui_startwith_patched = nil
     end
     -- Reset all module-level state so a re-enable cycle starts clean.
-    _hs_boot_done            = false
-    _hs_pending_after_reader = false
-    _start_with_hs           = nil
+    _hs_boot_done              = false
+    _hs_pending_after_reader   = false
+    _start_with_hs             = nil
+    _navpager_rebuild_pending  = false
     Config.reset()
     local Registry = package.loaded["desktop_modules/moduleregistry"]
     if Registry then Registry.invalidate() end
+    local FC = package.loaded["sui_foldercovers"]
+    if FC then
+        pcall(FC.uninstall)
+    end
 end
 
 return M

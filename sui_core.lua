@@ -18,7 +18,7 @@ local _dim = {}
 -- ---------------------------------------------------------------------------
 -- Shared layout constants — single source of truth for all desktop modules.
 --
--- Every module_*.lua and homescreen.lua reads these instead of declaring
+-- Every module_*.lua and sui_homescreen.lua reads these instead of declaring
 -- their own identical local copies. Values are computed once at load time
 -- via scaleBySize and stored as plain numbers — zero overhead at render time.
 --
@@ -59,11 +59,18 @@ function M.resolveMenuItems(items)
         local r = {}
         for k, v in pairs(item) do r[k] = v end
         if type(item.sub_item_table_func) == "function" then
-            -- Resolve the sub-table and recurse into its items (C1).
-            r.sub_item_table      = M.resolveMenuItems(item.sub_item_table_func())
+            -- Lazy resolution: keep the original func and resolve only when
+            -- the user actually navigates into this sub-menu. This avoids
+            -- building the entire menu tree upfront — critical on e-readers
+            -- where onMenuSelect is the only code path that reaches sub-menus.
+            -- The resolved table is stored back so repeated opens are free.
+            local orig_fn = item.sub_item_table_func
             r.sub_item_table_func = nil
+            r._sui_lazy_fn = orig_fn
+            r.sub_item_table = nil   -- will be populated on first navigation
         elseif type(item.sub_item_table) == "table" then
-            -- Resolve any funcs inside existing sub-tables too (C1).
+            -- Statically-provided sub-tables are resolved eagerly (they are
+            -- already in memory, so there is nothing to defer).
             r.sub_item_table = M.resolveMenuItems(item.sub_item_table)
         end
         if type(item.checked_func) == "function" then
@@ -99,13 +106,13 @@ end
 
 function M.invalidateDimCache()
     _dim = {}
-    local bb = package.loaded["bottombar"]
+    local bb = package.loaded["sui_bottombar"]
     if bb and bb.invalidateDimCache then bb.invalidateDimCache() end
-    local tb = package.loaded["topbar"]
+    local tb = package.loaded["sui_topbar"]
     if tb and tb.invalidateDimCache then tb.invalidateDimCache() end
     -- Clear VerticalSpan pools so stale px values (computed before resize)
     -- are not reused after scaleBySize produces different numbers.
-    local hs = package.loaded["homescreen"]
+    local hs = package.loaded["sui_homescreen"]
     if hs and hs._instance and hs._instance._vspan_pool then
         hs._instance._vspan_pool = {}
     end
@@ -119,14 +126,14 @@ end
 -- ---------------------------------------------------------------------------
 
 function M.getContentHeight()
-    local Bottombar = require("bottombar")
-    local Topbar    = require("topbar")
+    local Bottombar = require("sui_bottombar")
+    local Topbar    = require("sui_topbar")
     local topbar_on = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
     return Screen:getHeight() - Bottombar.TOTAL_H() - (topbar_on and Topbar.TOTAL_TOP_H() or 0)
 end
 
 function M.getContentTop()
-    local Topbar    = require("topbar")
+    local Topbar    = require("sui_topbar")
     local topbar_on = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
     return topbar_on and Topbar.TOTAL_TOP_H() or 0
 end
@@ -162,9 +169,9 @@ end
 -- Wraps an inner widget with the navbar layout (topbar + content + bottombar)
 -- ---------------------------------------------------------------------------
 
-function M.wrapWithNavbar(inner_widget, active_action_id, tabs)
-    local Topbar    = require("topbar")
-    local Bottombar = require("bottombar")
+function M.wrapWithNavbar(inner_widget, active_action_id, tabs, force_no_arrows)
+    local Topbar    = require("sui_topbar")
+    local Bottombar = require("sui_bottombar")
     local screen_w  = Screen:getWidth()
     local screen_h  = Screen:getHeight()
     -- Read both settings once — used multiple times below.
@@ -174,7 +181,10 @@ function M.wrapWithNavbar(inner_widget, active_action_id, tabs)
     local navbar_h   = Bottombar.TOTAL_H()
     local content_h  = screen_h - topbar_top - navbar_h
 
-    local bar    = navbar_on and Bottombar.buildBarWidget(active_action_id, tabs) or nil
+    local bar
+    if navbar_on then
+        bar = Bottombar.buildBarWidget(active_action_id, tabs)
+    end
     -- Build topbar only once — wrapWithNavbar is the single point of construction.
     -- Callers must NOT call buildTopbarWidget() again after wrapWithNavbar returns.
     local topbar = topbar_on and Topbar.buildTopbarWidget() or nil
@@ -237,7 +247,7 @@ end
 -- ---------------------------------------------------------------------------
 
 function M.applyNavbarState(widget, container, bar, topbar, bar_idx, topbar_on, topbar_idx, tabs)
-    local Topbar = require("topbar")
+    local Topbar = require("sui_topbar")
     widget._navbar_container         = container
     widget._navbar_bar               = bar
     widget._navbar_topbar            = topbar
@@ -293,7 +303,12 @@ function M.showSettingsMenu(title, item_table_fn, top_offset, screen_h, bottomba
         height     = menu_h,
         width      = Screen:getWidth(),
         onMenuSelect = function(self_menu, item)
-            if item.sub_item_table then
+            if item.sub_item_table or item._sui_lazy_fn then
+                -- Resolve lazy sub-table on first navigation into this item.
+                if item._sui_lazy_fn then
+                    item.sub_item_table = M.resolveMenuItems(item._sui_lazy_fn())
+                    item._sui_lazy_fn   = nil
+                end
                 self_menu.item_table.title = self_menu.title
                 table.insert(self_menu.item_table_stack, self_menu.item_table)
                 self_menu:switchItemTable(item.text, M.resolveMenuItems(item.sub_item_table))
@@ -325,7 +340,7 @@ function M.showSettingsMenu(title, item_table_fn, top_offset, screen_h, bottomba
             -- before executing scheduled callbacks — so the HS was painted with
             -- the stale tree before the rebuild ran. The synchronous call ensures
             -- the widget tree is replaced before any paint is flushed.
-            local ok, HS = pcall(require, "homescreen")
+            local ok, HS = pcall(require, "sui_homescreen")
             if not (ok and HS and HS._instance) then return end
             HS._instance:_refreshImmediate(false)
         end,

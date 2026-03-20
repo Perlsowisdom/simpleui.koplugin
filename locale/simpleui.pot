@@ -642,3 +642,270 @@ msgstr ""
 
 msgid "Cover for \"%s\""
 msgstr ""
+
+msgid "    Size"
+msgstr ""
+
+msgid "Apply"
+msgstr ""
+
+msgid "Bookmark browser"
+msgstr ""
+
+msgid "Bookmark browser not available."
+msgstr ""
+
+msgid "Bookmarks"
+msgstr ""
+
+msgid "Bottom"
+msgstr ""
+
+msgid "Bottom Bar Size"
+msgstr ""
+
+msgid "Change Icons"
+msgstr ""
+
+msgid "Cover size"
+msgstr ""
+
+msgid "Cover size  —  %d%%"
+msgstr ""
+
+msgid "Fetching bookmarks…"
+msgstr ""
+
+msgid "Global scale for all modules.\nIndividual overrides in Module Settings take precedence.\n100% is the default size."
+msgstr ""
+
+msgid "Height of the bottom navigation bar.\n100% is the default size."
+msgstr ""
+
+msgid "Height of the top status bar.\n100% is the default size."
+msgstr ""
+
+msgid "Hidden"
+msgstr ""
+
+msgid "Home folder"
+msgstr ""
+
+msgid "Home folder + subfolders"
+msgstr ""
+
+msgid "Label Scale"
+msgstr ""
+
+msgid "Labels  —  %d%%"
+msgstr ""
+
+msgid "Minimum 1 tab required in navpager mode."
+msgstr ""
+
+msgid "Module Scale"
+msgstr ""
+
+msgid "Modules  —  %d%%"
+msgstr ""
+
+msgid "Navigation Bar"
+msgstr ""
+
+msgid "Navpager"
+msgstr ""
+
+msgid "Navpager will be %s after restart.\n\nRestart now?"
+msgstr ""
+
+msgid "New name…"
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "No highlights found. Open a book and highlight some passages."
+msgstr ""
+
+msgid "Page %1 of %2"
+msgstr ""
+
+msgid "Page number in title bar"
+msgstr ""
+
+msgid "Prev"
+msgstr ""
+
+msgid "Rename"
+msgstr ""
+
+msgid "Replaces the pagination bar with Prev/Next arrows at the edges of the bottom bar.\nThe arrows dim when there is no previous or next page.\nWith navpager active, as few as 1 tab and at most 4 tabs can be configured."
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
+msgid "Reset all scales to default (100%)? This cannot be undone."
+msgstr ""
+
+msgid "Reset to Default Scale"
+msgstr ""
+
+msgid "Scale"
+msgstr ""
+
+msgid "Scale  —  %d%%"
+msgstr ""
+
+msgid "Scale  —  %d%% / %d%%"
+msgstr ""
+
+
+msgid "Scale for the collection thumbnails only.\nThe label text follows the module scale.\n100% is the default size."
+msgstr ""
+
+msgid "Scales all modules and labels together.\n100% is the default size."
+msgstr ""
+
+msgid "Scales the section label text above each module.\n100% is the default size."
+msgstr ""
+
+msgid "Simple UI was updated (%s → %s).\n\nA restart is recommended to apply all changes cleanly."
+msgstr ""
+
+msgid "Size  —  %d%%"
+msgstr ""
+
+msgid "Status Bar"
+msgstr ""
+
+msgid "Top"
+msgstr ""
+
+msgid "Top Bar Size"
+msgstr ""
+
+msgid "Top separator"
+msgstr ""
+
+msgid "Visible"
+msgstr ""
+
+msgid "Your highlights"
+msgstr ""
+
+
+
+msgid "Lock Scale"
+msgstr ""
+
+msgid "Disable \"Lock Scale\" first to set a per-module scale."
+msgstr ""
+
+msgid "Disable \"Lock Scale\" first to set a custom label scale."
+msgstr ""
+
+msgid "Text Size"
+msgstr ""
+
+msgid "Modules"
+msgstr ""
+
+msgid "Labels"
+msgstr ""
+
+msgid "Scale for this module.\n100% is the default size."
+msgstr ""
+
+msgid "Scale for the collection name text.\n100% is the default size."
+msgstr ""
+
+msgid "Scale for the cover thumbnail only.\n100% is the default size."
+msgstr ""
+
+msgid "Scale for all text elements (title, author, progress, time).\n100% is the default size."
+msgstr ""
+
+msgid "Scale for the button label text.\n100% is the default size."
+msgstr ""
+
+msgid "Scale for the cover thumbnails only.\nText and progress bar follow the module scale.\n100% is the default size."
+msgstr ""
+
+msgid "Scale for the percentage read text.\n100% is the default size."
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "Default Quotes"
+msgstr ""
+
+msgid "My Highlights"
+msgstr ""
+
+msgid "Quotes + My Highlights"
+msgstr ""
+
+msgid "default"
+msgstr ""
+
+msgid "Shows \"Page X of Y\" in the title bar subtitle when browsing the library, history or collections.\nNavpager enables this automatically.\nNot available when Navpager is active."
+msgstr ""
+
+msgid "Icon Size"
+msgstr ""
+
+msgid "Icon Size — %d%%"
+msgstr ""
+
+msgid "Label Size"
+msgstr ""
+
+msgid "Label Size — %d%%"
+msgstr ""
+
+msgid "Size of the tab icons.\n100% is the default size."
+msgstr ""
+
+msgid "Size of the tab label text.\n100% is the default size."
+msgstr ""
+
+msgid "Folder Covers"
+msgstr ""
+
+msgid "Folder cover"
+msgstr ""
+
+msgid "Set folder cover…"
+msgstr ""
+
+msgid "No books found in this folder."
+msgstr ""
+
+msgid "Badge"
+msgstr ""
+
+msgid "Center"
+msgstr ""
+
+msgid "Label"
+msgstr ""
+
+msgid "Show label"
+msgstr ""
+
+msgid "Transparent"
+msgstr ""
+
+msgid "Hide selection underline"
+msgstr ""
+
+msgid "Author"
+msgstr ""
+
+msgid "Progress bar"
+msgstr ""
+
+msgid "Percentage read"
+msgstr ""

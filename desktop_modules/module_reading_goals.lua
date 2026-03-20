@@ -22,9 +22,9 @@ local VerticalSpan    = require("ui/widget/verticalspan")
 local Screen          = Device.screen
 local _               = require("gettext")
 local logger          = require("logger")
-local Config          = require("config")
+local Config          = require("sui_config")
 
-local UI           = require("ui")
+local UI           = require("sui_core")
 local PAD          = UI.PAD
 local PAD2         = UI.PAD2
 local LABEL_H      = UI.LABEL_H
@@ -35,24 +35,17 @@ local _CLR_BAR_FG   = Blitbuffer.gray(0.75)
 local _CLR_TEXT_LBL = Blitbuffer.COLOR_BLACK
 local _CLR_TEXT_PCT = Blitbuffer.COLOR_BLACK
 
--- All pixel constants computed once at load time.
-local ROW_FS      = Screen:scaleBySize(11)    -- label / pct font size
-local SUB_FS      = Screen:scaleBySize(10)    -- detail text font size
-local ROW_H       = Screen:scaleBySize(16)    -- height of the top bar row (label+bar+pct)
-local SUB_H       = Screen:scaleBySize(16)    -- height of the detail text row below
-local SUB_GAP     = Screen:scaleBySize(2)     -- gap between bar row and detail row
-local ROW_GAP     = Screen:scaleBySize(18)    -- gap between annual and daily goals
-local BAR_H       = Screen:scaleBySize(7)     -- progress bar thickness
-local LBL_W       = Screen:scaleBySize(44)    -- fixed width reserved for the label column
-local COL_GAP     = Screen:scaleBySize(8)     -- base gap unit
-local BOT_PAD     = Screen:scaleBySize(18)     -- padding below detail text
-local GOAL_ROW_H  = ROW_H + SUB_GAP + SUB_H + BOT_PAD  -- total height of one goal block
-
--- Total module height: LABEL_H already added by _buildContent above each module.
--- This is the height of the rows themselves.
-local function _rowsHeight(n)
-    return n * GOAL_ROW_H + (n == 2 and ROW_GAP or 0)
-end
+-- Base pixel constants at 100% scale — multiplied at render time.
+local _BASE_ROW_FS  = Screen:scaleBySize(11)
+local _BASE_SUB_FS  = Screen:scaleBySize(10)
+local _BASE_ROW_H   = Screen:scaleBySize(16)
+local _BASE_SUB_H   = Screen:scaleBySize(16)
+local _BASE_SUB_GAP = Screen:scaleBySize(2)
+local _BASE_ROW_GAP = Screen:scaleBySize(18)
+local _BASE_BAR_H   = Screen:scaleBySize(7)
+local _BASE_LBL_W   = Screen:scaleBySize(44)
+local _BASE_COL_GAP = Screen:scaleBySize(8)
+local _BASE_BOT_PAD = Screen:scaleBySize(18)
 
 -- Year string — refreshed each call so it's always correct even across a year
 -- boundary in a long-running session. Cheap: os.date is a single C call.
@@ -168,17 +161,24 @@ local function getGoalStats(shared_conn)
             local year_start  = os.time{ year = t.year, month = 1, day = 1, hour = 0, min = 0, sec = 0 }
             local today_start = os.time() - (t.hour * 3600 + t.min * 60 + t.sec)
 
-            local ry = conn:rowexec(string.format([[
-                SELECT sum(s) FROM (
-                    SELECT sum(duration) AS s FROM page_stat
-                    WHERE start_time >= %d GROUP BY id_book, page);]], year_start))
-            year_secs = tonumber(ry) or 0
-
-            local rt = conn:rowexec(string.format([[
-                SELECT sum(s) FROM (
-                    SELECT sum(duration) AS s FROM page_stat
-                    WHERE start_time >= %d GROUP BY id_book, page);]], today_start))
-            today_secs = tonumber(rt) or 0
+            -- Two independent subqueries in a single SELECT — avoids two round-trips
+            -- while keeping start_time accessible inside each WHERE clause.
+            -- The CASE approach failed because start_time is not projected by the
+            -- inner GROUP BY, making it invisible to the outer CASE expression.
+            local stmt = conn:prepare([[
+                SELECT
+                    (SELECT sum(s) FROM (
+                        SELECT sum(duration) AS s FROM page_stat
+                        WHERE start_time >= ? GROUP BY id_book, page)),
+                    (SELECT sum(s) FROM (
+                        SELECT sum(duration) AS s FROM page_stat
+                        WHERE start_time >= ? GROUP BY id_book, page));]])
+            if stmt then
+                local row = stmt:bind(year_start, today_start):step()
+                year_secs  = tonumber(row and row[1]) or 0
+                today_secs = tonumber(row and row[2]) or 0
+                stmt:reset()
+            end
         end)
         if not ok then logger.warn("simpleui: reading_goals: getGoalStats failed: " .. tostring(err)) end
         if own_conn then pcall(function() conn:close() end) end
@@ -195,17 +195,46 @@ local function getGoalStats(shared_conn)
 end
 
 -- ---------------------------------------------------------------------------
--- Compact inline progress bar
+-- _scaledDims(scale) — all layout metrics for one render pass.
+-- Used by both build() and getHeight() so the two never drift apart.
+-- Fonts are resolved here once and stored in d.face_row / d.face_sub so
+-- buildGoalRow never calls Font:getFace more than once per render.
 -- ---------------------------------------------------------------------------
-local function buildProgressBar(w, pct)
+local function _scaledDims(scale)
+    scale = scale or 1.0
+    local row_h   = math.max(8,  math.floor(_BASE_ROW_H   * scale))
+    local sub_h   = math.max(8,  math.floor(_BASE_SUB_H   * scale))
+    local sub_gap = math.max(1,  math.floor(_BASE_SUB_GAP * scale))
+    local bot_pad = math.max(4,  math.floor(_BASE_BOT_PAD * scale))
+    local row_fs  = math.max(7,  math.floor(_BASE_ROW_FS  * scale))
+    local sub_fs  = math.max(6,  math.floor(_BASE_SUB_FS  * scale))
+    return {
+        row_fs     = row_fs,
+        sub_fs     = sub_fs,
+        face_row   = Font:getFace("smallinfofont", row_fs),
+        face_sub   = Font:getFace("cfont",         sub_fs),
+        row_h      = row_h,
+        sub_h      = sub_h,
+        sub_gap    = sub_gap,
+        row_gap    = math.max(4,  math.floor(_BASE_ROW_GAP * scale)),
+        bar_h      = math.max(1,  math.floor(_BASE_BAR_H   * scale)),
+        lbl_w      = math.max(20, math.floor(_BASE_LBL_W   * scale)),
+        col_gap    = math.max(2,  math.floor(_BASE_COL_GAP * scale)),
+        bot_pad    = bot_pad,
+        pct_w      = math.max(16, math.floor(Screen:scaleBySize(32) * scale)),
+        min_bar_w  = math.max(20, math.floor(Screen:scaleBySize(40) * scale)),
+        goal_row_h = row_h + sub_gap + sub_h + bot_pad,
+    }
+end
+local function buildProgressBar(w, pct, bar_h)
     local fw = math.max(0, math.floor(w * math.min(pct, 1.0)))
     if fw <= 0 then
-        return LineWidget:new{ dimen = Geom:new{ w = w, h = BAR_H }, background = _CLR_BAR_BG }
+        return LineWidget:new{ dimen = Geom:new{ w = w, h = bar_h }, background = _CLR_BAR_BG }
     end
     return OverlapGroup:new{
-        dimen = Geom:new{ w = w, h = BAR_H },
-        LineWidget:new{ dimen = Geom:new{ w = w,  h = BAR_H }, background = _CLR_BAR_BG },
-        LineWidget:new{ dimen = Geom:new{ w = fw, h = BAR_H }, background = _CLR_BAR_FG },
+        dimen = Geom:new{ w = w, h = bar_h },
+        LineWidget:new{ dimen = Geom:new{ w = w,  h = bar_h }, background = _CLR_BAR_BG },
+        LineWidget:new{ dimen = Geom:new{ w = fw, h = bar_h }, background = _CLR_BAR_FG },
     }
 end
 
@@ -225,41 +254,37 @@ end
 --    6. gap     — COL_GAP
 --    7. Detail  — fills remaining space, left-aligned
 -- ---------------------------------------------------------------------------
-local function buildGoalRow(inner_w, label_str, pct, pct_str, detail_str, on_tap)
-    -- Top row: Label  [══════════░░░░]  XX%  (% right-aligned)
-    -- Bottom row: detail text (smaller, secondary colour)
-
-    local PCT_W       = Screen:scaleBySize(32)
-    local BAR_PCT_GAP = COL_GAP
-    local bar_w       = math.max(Screen:scaleBySize(40),
-                            inner_w - LBL_W - COL_GAP - BAR_PCT_GAP - PCT_W)
+local function buildGoalRow(inner_w, label_str, pct, pct_str, detail_str, on_tap, d)
+    -- d: scaled dims table computed once per M.build() call.
+    -- d.face_row and d.face_sub are pre-resolved by _scaledDims — no Font:getFace here.
+    local PCT_W       = d.pct_w
+    local BAR_PCT_GAP = d.col_gap
+    local bar_w       = math.max(d.min_bar_w,
+                            inner_w - d.lbl_w - d.col_gap - BAR_PCT_GAP - PCT_W)
 
     local lbl_widget = TextWidget:new{
         text    = label_str,
-        face    = Font:getFace("smallinfofont", ROW_FS),
+        face    = d.face_row,
         bold    = true,
         fgcolor = _CLR_TEXT_LBL,
-        width   = LBL_W,
+        width   = d.lbl_w,
     }
 
-    local bar_widget = buildProgressBar(bar_w, pct)
+    local bar_widget = buildProgressBar(bar_w, pct, d.bar_h)
 
     local pct_widget = TextWidget:new{
         text      = pct_str,
-        face      = Font:getFace("smallinfofont", ROW_FS),
+        face      = d.face_row,
         bold      = false,
         fgcolor   = _CLR_TEXT_PCT,
         width     = PCT_W,
         alignment = "right",
     }
 
-    -- Simple left-to-right layout. bar_w is sized so the columns sum to inner_w:
-    --   LBL_W + COL_GAP + bar_w + BAR_PCT_GAP + PCT_W = inner_w
-    -- Pure arithmetic — no alignment containers, no overlap possible.
     local top_row = HorizontalGroup:new{
         align = "center",
         lbl_widget,
-        HorizontalSpan:new{ width = COL_GAP },
+        HorizontalSpan:new{ width = d.col_gap },
         bar_widget,
         HorizontalSpan:new{ width = BAR_PCT_GAP },
         pct_widget,
@@ -267,7 +292,7 @@ local function buildGoalRow(inner_w, label_str, pct, pct_str, detail_str, on_tap
 
     local detail_widget = TextWidget:new{
         text    = detail_str,
-        face    = Font:getFace("cfont", SUB_FS),
+        face    = d.face_sub,
         fgcolor = CLR_TEXT_SUB,
         width   = inner_w,
     }
@@ -275,21 +300,21 @@ local function buildGoalRow(inner_w, label_str, pct, pct_str, detail_str, on_tap
     local block = VerticalGroup:new{
         align = "left",
         top_row,
-        VerticalSpan:new{ width = SUB_GAP },
+        VerticalSpan:new{ width = d.sub_gap },
         detail_widget,
     }
 
     local frame = FrameContainer:new{
         bordersize     = 0,
         padding        = 0,
-        padding_bottom = Screen:scaleBySize(6),
+        padding_bottom = d.bot_pad,
         block,
     }
 
     if not on_tap then return frame end
 
     local tappable = InputContainer:new{
-        dimen   = Geom:new{ w = inner_w, h = GOAL_ROW_H },
+        dimen   = Geom:new{ w = inner_w, h = d.goal_row_h },
         [1]     = frame,
         _on_tap = on_tap,
     }
@@ -313,7 +338,7 @@ end
 -- Homescreen refresh helper
 -- ---------------------------------------------------------------------------
 local function _refreshHS()
-    local HS = package.loaded["homescreen"]
+    local HS = package.loaded["sui_homescreen"]
     if HS then HS.refresh(false) end
 end
 
@@ -388,41 +413,64 @@ M.showAnnualPhysicalDialog = showAnnualPhysicalDialog
 M.showDailySettingsDialog  = showDailySettingsDialog
 M.invalidateCache          = invalidateStatsCache
 
+-- Called by teardown to drop the per-day stats cache so a hot update or
+-- a midnight rollover does not carry stale data into the next session.
+function M.reset() invalidateStatsCache() end
+
 function M.build(w, ctx)
     local show_ann = showAnnual()
     local show_day = showDaily()
     if not show_ann and not show_day then return nil end
 
-    local inner_w                           = w - PAD * 2
+    local scale   = Config.getModuleScale("reading_goals", ctx.pfx)
+    local d       = _scaledDims(scale)
+    local inner_w = w - PAD * 2
     local books_read, year_secs, today_secs = getGoalStats(ctx.db_conn)
-
-    local on_annual_tap = function() showAnnualGoalDialog()    end
-    local on_daily_tap  = function() showDailySettingsDialog() end
 
     local rows = VerticalGroup:new{ align = "left" }
 
     if show_ann then
-        local goal    = getAnnualGoal()
-        local read    = books_read + getAnnualPhysical()
-        local pct     = (goal > 0) and (read / goal) or 0
-        local pct_str = string.format("%d%%", math.floor(pct * 100))
+        local goal     = getAnnualGoal()
+        local read     = books_read + getAnnualPhysical()
+        local pct, pct_str
+        if goal > 0 then
+            pct     = read / goal
+            pct_str = string.format("%d%%", math.floor(pct * 100))
+        else
+            -- No annual goal set: full bar for visual weight, count in detail.
+            pct     = 1.0
+            pct_str = ""
+        end
+        logger.dbg("simpleui reading_goals: annual bar — goal=", goal,
+            "books_read=", books_read, "physical=", getAnnualPhysical(),
+            "read=", read, "pct=", pct, "pct_str=", pct_str)
         local detail
         if goal > 0 then
             detail = string.format(_("%d/%d books"), read, goal)
         else
             detail = string.format(_("%d books"), read)
         end
-        rows[#rows+1] = buildGoalRow(inner_w, _getYearStr(), pct, pct_str, detail, on_annual_tap)
+        local on_tap = function() showAnnualGoalDialog() end
+        rows[#rows+1] = buildGoalRow(inner_w, _getYearStr(), pct, pct_str, detail, on_tap, d)
     end
 
     if show_ann and show_day then
-        rows[#rows+1] = VerticalSpan:new{ width = ROW_GAP }
+        rows[#rows+1] = VerticalSpan:new{ width = d.row_gap }
     end
 
     if show_day then
         local goal_secs = getDailyGoalSecs()
-        local pct       = (goal_secs > 0) and (today_secs / goal_secs) or 0
-        local pct_str   = string.format("%d%%", math.floor(pct * 100))
+        local pct, pct_str
+        if goal_secs > 0 then
+            -- Normal case: show progress towards the goal.
+            pct     = today_secs / goal_secs
+            pct_str = string.format("%d%%", math.floor(pct * 100))
+        else
+            -- No daily goal set: show a full bar so the row has visual weight,
+            -- and omit the percentage — the detail line carries the real info.
+            pct     = 1.0
+            pct_str = ""
+        end
         local detail
         if goal_secs <= 0 then
             detail = string.format(_("%s read"), formatDuration(today_secs))
@@ -430,7 +478,9 @@ function M.build(w, ctx)
             detail = string.format("%s/%s",
                 formatDuration(today_secs), formatDuration(goal_secs))
         end
-        rows[#rows+1] = buildGoalRow(inner_w, _("Today"), pct, pct_str, detail, on_daily_tap)
+        -- Closure allocated only when the row is actually shown.
+        local on_tap = function() showDailySettingsDialog() end
+        rows[#rows+1] = buildGoalRow(inner_w, _("Today"), pct, pct_str, detail, on_tap, d)
     end
 
     return FrameContainer:new{
@@ -442,13 +492,32 @@ end
 
 function M.getHeight(_ctx)
     local n = (showAnnual() and 1 or 0) + (showDaily() and 1 or 0)
-    return LABEL_H + _rowsHeight(n)
+    if n == 0 then return 0 end
+    local d = _scaledDims(Config.getModuleScale("reading_goals", _ctx and _ctx.pfx))
+    return require("sui_config").getScaledLabelH() + n * d.goal_row_h + (n == 2 and d.row_gap or 0)
 end
 
+
+local function _makeScaleItem(ctx_menu)
+    local pfx = ctx_menu.pfx
+    local _lc = ctx_menu._
+    return Config.makeScaleItem({
+        text_func    = function() return _lc("Scale") end,
+        enabled_func = function() return not Config.isScaleLinked() end,
+        title        = _lc("Scale"),
+        info         = _lc("Scale for this module.\n100% is the default size."),
+        get          = function() return Config.getModuleScalePct("reading_goals", pfx) end,
+        set          = function(v) Config.setModuleScale(v, "reading_goals", pfx) end,
+        refresh      = ctx_menu.refresh,
+    })
+end
 function M.getMenuItems(ctx_menu)
     local refresh = ctx_menu.refresh
     local _lc     = ctx_menu._
+    local scale_item = _makeScaleItem(ctx_menu)
+    scale_item.separator = true
     return {
+        scale_item,
         { text         = _lc("Annual Goal"),
           checked_func = function() return showAnnual() end,
           keep_menu_open = true,

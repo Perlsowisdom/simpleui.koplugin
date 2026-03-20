@@ -16,19 +16,19 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-msgid "  Physical Books  (%d in %s)"
+msgid "  Physical Books  (%d in %s)"
 msgstr "  Бумажные книги  (%d в %s)"
 
-msgid "  Set Goal  (%d books in %s)"
+msgid "  Set Goal  (%d books in %s)"
 msgstr "  Задать цель  (%d кн. в %s)"
 
-msgid "  Set Goal  (%d min/day)"
+msgid "  Set Goal  (%d min/day)"
 msgstr "  Задать цель  (%d мин/день)"
 
-msgid "  Set Goal  (%s)"
+msgid "  Set Goal  (%s)"
 msgstr "  Задать цель  (%s)"
 
-msgid "  Set Goal  (disabled)"
+msgid "  Set Goal  (disabled)"
 msgstr "  Задать цель  (отключено)"
 
 msgid "%d books"
@@ -178,7 +178,7 @@ msgstr "Удалить"
 msgid "Dictionary Lookup"
 msgstr "Поиск в словаре"
 
-msgid "Digital Goal  (%s)"
+msgid "Digital Goal  (%s)"
 msgstr "Цель по эл. книгам  (%s)"
 
 msgid "Digital: %d books in %s"
@@ -307,13 +307,13 @@ msgstr "Настройки модуля"
 msgid "Module limit disabled. Enabling too many modules may slow down the homescreen significantly and modules may be clipped at the bottom of the page."
 msgstr "Лимит модулей отключен. Включение слишком большого числа модулей может сильно замедлить домашний экран, а модули внизу могут обрезаться."
 
-msgid "Modules  (%d — no limit)"
+msgid "Modules  (%d — no limit)"
 msgstr "Модули  (%d — без лимита)"
 
-msgid "Modules  (%d/%d — %d left)"
+msgid "Modules  (%d/%d — %d left)"
 msgstr "Модули  (%d/%d — осталось %d)"
 
-msgid "Modules  (%d/%d — at limit)"
+msgid "Modules  (%d/%d — at limit)"
 msgstr "Модули  (%d/%d — лимит достигнут)"
 
 msgid "Name"
@@ -325,7 +325,7 @@ msgstr "Менеджер сети недоступен."
 msgid "New Quick Action"
 msgstr "Новое быстрое действие"
 
-msgid "No Module Limit  ⚠ not recommended"
+msgid "No Module Limit  ⚠ not recommended"
 msgstr "Без лимита модулей  ⚠ не рекомендуется"
 
 msgid "No book in history."
@@ -406,10 +406,10 @@ msgstr "Выход"
 msgid "Quick Actions"
 msgstr "Быстрые действия"
 
-msgid "Quick Actions  (%d/%d — %d left)"
+msgid "Quick Actions  (%d/%d — %d left)"
 msgstr "Быстрые действия  (%d/%d — осталось %d)"
 
-msgid "Quick Actions  (%d/%d — at limit)"
+msgid "Quick Actions  (%d/%d — at limit)"
 msgstr "Быстрые действия  (%d/%d — лимит достигнут)"
 
 msgid "Quick Actions %d"
@@ -487,10 +487,10 @@ msgstr "Системные действия"
 msgid "System action error: %s"
 msgstr "Ошибка системного действия: %s"
 
-msgid "Tabs  (%d/%d — %d left)"
+msgid "Tabs  (%d/%d — %d left)"
 msgstr "Вкладки  (%d/%d — осталось %d)"
 
-msgid "Tabs  (%d/%d — at limit)"
+msgid "Tabs  (%d/%d — at limit)"
 msgstr "Вкладки  (%d/%d — лимит достигнут)"
 
 msgid "Text"
@@ -585,3 +585,327 @@ msgstr "страниц/день (7 дней)"
 
 msgid "visible"
 msgstr "видимо"
+
+msgid "    Size"
+msgstr "    Размер"
+
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Bookmark browser"
+msgstr "Просмотр закладок"
+
+msgid "Bookmark browser not available."
+msgstr "Просмотр закладок недоступен."
+
+msgid "Bookmarks"
+msgstr "Закладки"
+
+msgid "Bottom"
+msgstr "Снизу"
+
+msgid "Bottom Bar Size"
+msgstr "Размер нижней панели"
+
+msgid "Change Icons"
+msgstr "Изменить значки"
+
+msgid "Cover size"
+msgstr "Размер обложки"
+
+msgid "Cover size  —  %d%%"
+msgstr "Размер обложки  —  %d%%"
+
+msgid "Fetching bookmarks…"
+msgstr "Загрузка закладок…"
+
+msgid "Global scale for all modules.\nIndividual overrides in Module Settings take precedence.\n100% is the default size."
+msgstr "Глобальный масштаб для всех модулей.\nИндивидуальные настройки в «Настройках модуля» имеют приоритет.\n100% — размер по умолчанию."
+
+msgid "Height of the bottom navigation bar.\n100% is the default size."
+msgstr "Высота нижней панели навигации.\n100% — размер по умолчанию."
+
+msgid "Height of the top status bar.\n100% is the default size."
+msgstr "Высота верхней строки состояния.\n100% — размер по умолчанию."
+
+msgid "Hidden"
+msgstr "Скрыто"
+
+msgid "Home folder"
+msgstr "Домашняя папка"
+
+msgid "Home folder + subfolders"
+msgstr "Домашняя папка + подпапки"
+
+msgid "Label Scale"
+msgstr "Масштаб подписей"
+
+msgid "Labels  —  %d%%"
+msgstr "Подписи  —  %d%%"
+
+msgid "Minimum 1 tab required in navpager mode."
+msgstr "В режиме навигатора страниц требуется минимум 1 вкладка."
+
+msgid "Module Scale"
+msgstr "Масштаб модуля"
+
+msgid "Modules  —  %d%%"
+msgstr "Модули  —  %d%%"
+
+msgid "Navigation Bar"
+msgstr "Панель навигации"
+
+msgid "Navpager"
+msgstr "Навигатор страниц"
+
+msgid "Navpager will be %s after restart.\n\nRestart now?"
+msgstr "Навигатор страниц будет %s после перезапуска.\n\nПерезапустить сейчас?"
+
+msgid "New name…"
+msgstr "Новое название…"
+
+msgid "Next"
+msgstr "Далее"
+
+msgid "No highlights found. Open a book and highlight some passages."
+msgstr "Выделения не найдены. Откройте книгу и выделите несколько отрывков."
+
+msgid "Page %1 of %2"
+msgstr "Страница %1 из %2"
+
+msgid "Page number in title bar"
+msgstr "Номер страницы в строке заголовка"
+
+msgid "Prev"
+msgstr "Назад"
+
+msgid "Rename"
+msgstr "Переименовать"
+
+msgid "Replaces the pagination bar with Prev/Next arrows at the edges of the bottom bar.\nThe arrows dim when there is no previous or next page.\nWith navpager active, as few as 1 tab and at most 4 tabs can be configured."
+msgstr "Заменяет панель нумерации страниц стрелками Назад/Вперёд по краям нижней панели.\nСтрелки тускнеют, когда нет предыдущей или следующей страницы.\nПри активном навигаторе страниц можно настроить от 1 до 4 вкладок."
+
+msgid "Reset"
+msgstr "Сбросить"
+
+msgid "Reset all scales to default (100%)? This cannot be undone."
+msgstr "Сбросить все масштабы до значения по умолчанию (100%)? Это действие нельзя отменить."
+
+msgid "Reset to Default Scale"
+msgstr "Сбросить до масштаба по умолчанию"
+
+msgid "Scale"
+msgstr "Масштаб"
+
+msgid "Scale  —  %d%%"
+msgstr "Масштаб  —  %d%%"
+
+msgid "Scale  —  %d%% / %d%%"
+msgstr "Масштаб  —  %d%% / %d%%"
+
+
+msgid "Scale for the collection thumbnails only.\nThe label text follows the module scale.\n100% is the default size."
+msgstr "Масштаб только для миниатюр коллекций.\nТекст подписи следует масштабу модуля.\n100% — размер по умолчанию."
+
+msgid "Scales all modules and labels together.\n100% is the default size."
+msgstr "Масштабирует все модули и подписи вместе.\n100% — размер по умолчанию."
+
+msgid "Scales the section label text above each module.\n100% is the default size."
+msgstr "Масштабирует текст подписи раздела над каждым модулем.\n100% — размер по умолчанию."
+
+msgid "Simple UI was updated (%s → %s).\n\nA restart is recommended to apply all changes cleanly."
+msgstr "Simple UI обновлён (%s → %s).\n\nДля корректного применения всех изменений рекомендуется перезапуск."
+
+msgid "Size  —  %d%%"
+msgstr "Размер  —  %d%%"
+
+msgid "Status Bar"
+msgstr "Строка состояния"
+
+msgid "Top"
+msgstr "Сверху"
+
+msgid "Top Bar Size"
+msgstr "Размер верхней панели"
+
+msgid "Top separator"
+msgstr "Верхний разделитель"
+
+msgid "Visible"
+msgstr "Видимо"
+
+msgid "Your highlights"
+msgstr "Ваши выделения"
+
+msgid "Arrange Buttons"
+msgstr "Упорядочить кнопки"
+
+msgid "Back"
+msgstr "Назад"
+
+msgid "Button Size"
+msgstr "Размер кнопки"
+
+msgid "Cards"
+msgstr "Карточки"
+
+msgid "Close"
+msgstr "Закрыть"
+
+msgid "Cover for \"%s\""
+msgstr "Обложка для \"%s\""
+
+msgid "Custom Title Bar"
+msgstr "Пользовательская строка заголовка"
+
+msgid "Custom Title Bar will be %s after restart.\n\nRestart now?"
+msgstr "Пользовательская строка заголовка будет %s после перезапуска.\n\nПерезапустить сейчас?"
+
+msgid "Delete quick action \"%s\"?"
+msgstr "Удалить быстрое действие \"%s\"?"
+
+msgid "Library Buttons"
+msgstr "Кнопки библиотеки"
+
+msgid "List"
+msgstr "Список"
+
+msgid "Menu"
+msgstr "Меню"
+
+msgid "More Options"
+msgstr "Дополнительные параметры"
+
+msgid "Search"
+msgstr "Поиск"
+
+msgid "Show Battery"
+msgstr "Показать батарею"
+
+msgid "Show Date"
+msgstr "Показать дату"
+
+msgid "Sub-pages Buttons"
+msgstr "Кнопки подстраниц"
+
+msgid "Title"
+msgstr "Заголовок"
+
+msgid "Title Bar"
+msgstr "Строка заголовка"
+
+
+
+msgid "Lock Scale"
+msgstr "Фиксированный масштаб"
+
+msgid "Disable \"Lock Scale\" first to set a per-module scale."
+msgstr "Сначала отключите «Фиксированный масштаб», чтобы задать масштаб для отдельного модуля."
+
+msgid "Disable \"Lock Scale\" first to set a custom label scale."
+msgstr "Сначала отключите «Фиксированный масштаб», чтобы задать пользовательский масштаб метки."
+
+msgid "Text Size"
+msgstr "Размер текста"
+
+msgid "Modules"
+msgstr "Модули"
+
+msgid "Labels"
+msgstr "Метки"
+
+msgid "Scale for this module.\n100% is the default size."
+msgstr "Масштаб этого модуля.\n100% — размер по умолчанию."
+
+msgid "Scale for the collection name text.\n100% is the default size."
+msgstr "Масштаб текста названия коллекции.\n100% — размер по умолчанию."
+
+msgid "Scale for the cover thumbnail only.\n100% is the default size."
+msgstr "Масштаб только для миниатюры обложки.\n100% — размер по умолчанию."
+
+msgid "Scale for all text elements (title, author, progress, time).\n100% is the default size."
+msgstr "Масштаб всех текстовых элементов (название, автор, прогресс, время).\n100% — размер по умолчанию."
+
+msgid "Scale for the button label text.\n100% is the default size."
+msgstr "Масштаб текста метки кнопки.\n100% — размер по умолчанию."
+
+msgid "Scale for the cover thumbnails only.\nText and progress bar follow the module scale.\n100% is the default size."
+msgstr "Масштаб только для миниатюр обложек.\nТекст и прогресс-бар следуют масштабу модуля.\n100% — размер по умолчанию."
+
+msgid "Scale for the percentage read text.\n100% is the default size."
+msgstr "Масштаб текста процента прочитанного.\n100% — размер по умолчанию."
+
+msgid "Source"
+msgstr "Источник"
+
+msgid "Default Quotes"
+msgstr "Цитаты по умолчанию"
+
+msgid "My Highlights"
+msgstr "Мои выделения"
+
+msgid "Quotes + My Highlights"
+msgstr "Цитаты + Мои выделения"
+
+msgid "default"
+msgstr "по умолчанию"
+
+msgid "Shows \"Page X of Y\" in the title bar subtitle when browsing the library, history or collections.\nNavpager enables this automatically.\nNot available when Navpager is active."
+msgstr "Показывает \"Страница X из Y\" в подзаголовке заголовка при просмотре библиотеки, истории или коллекций.\nНавигатор активирует это автоматически.\nНедоступно при активном навигаторе."
+
+msgid "Icon Size"
+msgstr "Размер значка"
+
+msgid "Icon Size — %d%%"
+msgstr "Размер значка  —  %d%%"
+
+msgid "Label Size"
+msgstr "Размер подписи"
+
+msgid "Label Size — %d%%"
+msgstr "Размер подписи  —  %d%%"
+
+msgid "Size of the tab icons.\n100% is the default size."
+msgstr "Размер значков вкладок.\n100% — размер по умолчанию."
+
+msgid "Size of the tab label text.\n100% is the default size."
+msgstr "Размер текста подписей вкладок.\n100% — размер по умолчанию."
+
+msgid "Folder Covers"
+msgstr "Обложки папок"
+
+msgid "Folder cover"
+msgstr "Обложка папки"
+
+msgid "Set folder cover…"
+msgstr "Задать обложку папки…"
+
+msgid "No books found in this folder."
+msgstr "В этой папке книги не найдены."
+
+msgid "Badge"
+msgstr "Значок"
+
+msgid "Center"
+msgstr "По центру"
+
+msgid "Label"
+msgstr "Подпись"
+
+msgid "Show label"
+msgstr "Показать подпись"
+
+msgid "Transparent"
+msgstr "Прозрачный"
+
+msgid "Hide selection underline"
+msgstr "Скрыть подчёркивание выбранного"
+
+msgid "Author"
+msgstr "Автор"
+
+msgid "Progress bar"
+msgstr "Индикатор прогресса"
+
+msgid "Percentage read"
+msgstr "Процент прочитанного"

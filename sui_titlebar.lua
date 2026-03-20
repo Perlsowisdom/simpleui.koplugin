@@ -21,12 +21,28 @@
 --   We zero ALL paddings before placing, so overlap_offset[1] = icon left edge.
 
 local _ = require("gettext")
-local Config = require("config")
+local Config = require("sui_config")
 
 -- Lua 5.1 compatibility: unpack is a global; table.unpack was added in 5.2 / LuaJIT compat.
 local _unpack = table.unpack or unpack
 
 local M = {}
+
+-- ---------------------------------------------------------------------------
+-- Helper: returns true when the library "Lock Home Folder" setting is active
+-- AND the given path is the configured home folder.  In that case the Back
+-- button must be hidden even though no is_go_up item exists in the list.
+-- ---------------------------------------------------------------------------
+local function _isLockedAtHome(path)
+    if not G_reader_settings:isTrue("lock_home_folder") then return false end
+    if not path then return false end
+    local home = G_reader_settings:readSetting("home_dir")
+    if not home then return false end
+    -- Normalise trailing slash before comparing.
+    local p = path:gsub("/$", "")
+    local h = home:gsub("/$", "")
+    return p == h
+end
 
 -- ---------------------------------------------------------------------------
 -- Item catalogue
@@ -56,7 +72,7 @@ local _VIS_DEFAULTS = {
     menu_button   = true,
     up_button     = true,
     title         = true,
-    search_button = false,
+    search_button = true,
     inj_back      = true,
     inj_right     = false,
 }
@@ -85,9 +101,9 @@ function M.getSizeScale() return _SIZE_SCALE[M.getSizeKey()] or 1.0 end
 -- ---------------------------------------------------------------------------
 
 local _FM_DEFAULTS = {
-    side        = { menu_button = "right", up_button = "left", search_button = "right" },
-    order_left  = { "up_button" },
-    order_right = { "menu_button", "search_button" },
+    side        = { menu_button = "right", up_button = "left", search_button = "left" },
+    order_left  = { "up_button", "search_button" },
+    order_right = { "menu_button" },
 }
 local _INJ_DEFAULTS = {
     side        = { inj_back = "left", inj_right = "right" },
@@ -269,7 +285,7 @@ local function _layoutParams(tb)
     return {
         iw  = math.floor(base_iw * scale),
         pad = Screen:scaleBySize(18),
-        gap = Screen:scaleBySize(4),
+        gap = Screen:scaleBySize(18),
         sw  = Screen:getWidth(),
     }
 end
@@ -358,6 +374,15 @@ function M.apply(fm_self)
         if show_up then
             placeBtn("up_button", lb)
 
+            -- If the home folder is locked and the FM is already sitting at
+            -- the home folder, hide the back button immediately — before the
+            -- first genItemTable fires — so it is never briefly visible.
+            if fm_self.file_chooser and _isLockedAtHome(fm_self.file_chooser.path) then
+                lb.overlap_offset = { sw + 100, 0 }
+                lb.callback       = function() end
+                lb.hold_callback  = function() end
+            end
+
             local fc = fm_self.file_chooser
             if fc then
                 local ICON_UP = "chevron.left"  -- safe default
@@ -404,6 +429,14 @@ function M.apply(fm_self)
                         else
                             filtered[#filtered + 1] = item
                         end
+                    end
+                    -- Also hide Back when the home folder is locked and we are
+                    -- currently sitting at that folder (KOReader omits is_go_up
+                    -- in that case, so is_sub is already false — but being
+                    -- explicit here guards against future KOReader changes and
+                    -- makes the intent clear).
+                    if _isLockedAtHome(path or fc_self.path) then
+                        is_sub = false
                     end
                     local tb2 = fm_self.title_bar
                     if tb2 and tb2.left_button then
@@ -509,6 +542,10 @@ function M.apply(fm_self)
                         if item.is_go_up or (item.text and item.text:find("\u{2B06}")) then
                             at_root = false; break
                         end
+                    end
+                    -- Also treat locked-at-home as root (back hidden).
+                    if not at_root and _isLockedAtHome(fc2.path) then
+                        at_root = true
                     end
                     if at_root and slot_map["search_button"] and slot_map["search_button"].side == "left" then
                         local up_slot2 = slot_map["up_button"] and slot_map["up_button"].slot or 0

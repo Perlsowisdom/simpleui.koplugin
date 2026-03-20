@@ -14,43 +14,26 @@ local VerticalSpan    = require("ui/widget/verticalspan")
 local Screen          = Device.screen
 local _               = require("gettext")
 
-local UI           = require("ui")
+local UI           = require("sui_core")
+local UIManager    = require("ui/uimanager")
+local Config       = require("sui_config")
 local PAD          = UI.PAD
 local PAD2         = UI.PAD2
 local CLR_TEXT_SUB = UI.CLR_TEXT_SUB
 
 -- ---------------------------------------------------------------------------
--- Pixel constants — computed once at load time.
+-- Pixel constants — base values at 100% scale; scaled at render time.
 -- ---------------------------------------------------------------------------
 
-local CLOCK_W       = Screen:scaleBySize(50)  -- CenterContainer height for clock text
-local CLOCK_FS      = Screen:scaleBySize(44)
-local DATE_H        = Screen:scaleBySize(17)
-local DATE_GAP      = Screen:scaleBySize(19)
-local DATE_FS       = Screen:scaleBySize(11)
-local BATT_FS       = Screen:scaleBySize(10)
-local BATT_H        = Screen:scaleBySize(15)
-local BATT_GAP      = Screen:scaleBySize(6)
-local BOT_PAD_EXTRA = Screen:scaleBySize(4)
-
--- Font faces cached at load time.
-local _FACE_CLOCK = Font:getFace("smallinfofont", CLOCK_FS)
-local _FACE_DATE  = Font:getFace("smallinfofont", DATE_FS)
-local _FACE_BATT  = Font:getFace("smallinfofont", BATT_FS)
-
--- Battery is always rendered in the same subdued colour as other auxiliary
--- text (date, authors, etc.) — no colour-coded feedback needed here.
-
--- Precomputed heights for the 4 toggle combinations.
-local _H_BASE      = CLOCK_W + PAD * 2 + PAD2
-local _H_DATE      = _H_BASE + DATE_GAP + DATE_H
-local _H_BATT      = _H_BASE + BATT_GAP + BATT_H
-local _H_DATE_BATT = _H_DATE + BATT_GAP + BATT_H
-
--- Cached Geom instances — mutated in build() to avoid per-render allocation.
-local _dimen_clock = Geom:new{ w = 0, h = CLOCK_W }
-local _dimen_date  = Geom:new{ w = 0, h = DATE_H  }
-local _dimen_batt  = Geom:new{ w = 0, h = BATT_H  }
+local _BASE_CLOCK_W       = Screen:scaleBySize(50)
+local _BASE_CLOCK_FS      = Screen:scaleBySize(44)
+local _BASE_DATE_H        = Screen:scaleBySize(17)
+local _BASE_DATE_GAP      = Screen:scaleBySize(19)
+local _BASE_DATE_FS       = Screen:scaleBySize(11)
+local _BASE_BATT_FS       = Screen:scaleBySize(10)
+local _BASE_BATT_H        = Screen:scaleBySize(15)
+local _BASE_BATT_GAP      = Screen:scaleBySize(6)
+local _BASE_BOT_PAD_EXTRA = Screen:scaleBySize(4)
 
 -- ---------------------------------------------------------------------------
 -- Settings keys
@@ -122,46 +105,55 @@ local function _vspan(px, pool)
 end
 
 local function build(w, pfx, vspan_pool)
-    local inner_w   = w - PAD * 2
+    local scale     = Config.getModuleScale("clock", pfx)
+
+    -- Scale all dimensions from base values.
+    local clock_w       = math.floor(_BASE_CLOCK_W       * scale)
+    local clock_fs      = math.max(10, math.floor(_BASE_CLOCK_FS  * scale))
+    local date_h        = math.max(8,  math.floor(_BASE_DATE_H    * scale))
+    local date_gap      = math.max(2,  math.floor(_BASE_DATE_GAP  * scale))
+    local date_fs       = math.max(8,  math.floor(_BASE_DATE_FS   * scale))
+    local batt_fs       = math.max(7,  math.floor(_BASE_BATT_FS   * scale))
+    local batt_h        = math.max(7,  math.floor(_BASE_BATT_H    * scale))
+    local batt_gap      = math.max(2,  math.floor(_BASE_BATT_GAP  * scale))
+    local bot_pad_extra = math.floor(_BASE_BOT_PAD_EXTRA * scale)
+
     local show_date = isDateEnabled(pfx)
     local show_batt = isBattEnabled(pfx)
-
-    _dimen_clock.w = inner_w
-    _dimen_date.w  = inner_w
-    _dimen_batt.w  = inner_w
+    local inner_w   = w - PAD * 2
 
     local vg = VerticalGroup:new{ align = "center" }
 
     -- Clock — always shown.
     vg[#vg+1] = CenterContainer:new{
-        dimen = _dimen_clock,
+        dimen = Geom:new{ w = inner_w, h = clock_w },
         TextWidget:new{
             text = datetime.secondsToHour(os.time(), G_reader_settings:isTrue("twelve_hour_clock")),
-            face = _FACE_CLOCK,
+            face = Font:getFace("smallinfofont", clock_fs),
             bold = true,
         },
     }
 
     if show_date then
-        vg[#vg+1] = _vspan(DATE_GAP, vspan_pool)
+        vg[#vg+1] = _vspan(date_gap, vspan_pool)
         vg[#vg+1] = CenterContainer:new{
-            dimen = _dimen_date,
+            dimen = Geom:new{ w = inner_w, h = date_h },
             TextWidget:new{
                 text    = os.date("%A, %d %B"),
-                face    = _FACE_DATE,
+                face    = Font:getFace("smallinfofont", date_fs),
                 fgcolor = CLR_TEXT_SUB,
             },
         }
     end
 
     if show_batt then
-        vg[#vg+1] = _vspan(BATT_GAP, vspan_pool)
+        vg[#vg+1] = _vspan(batt_gap, vspan_pool)
         local lvl, charging = _battInfo()
         vg[#vg+1] = CenterContainer:new{
-            dimen = _dimen_batt,
+            dimen = Geom:new{ w = inner_w, h = batt_h },
             TextWidget:new{
                 text    = _battText(lvl, charging),
-                face    = _FACE_BATT,
+                face    = Font:getFace("smallinfofont", batt_fs),
                 fgcolor = CLR_TEXT_SUB,
             },
         }
@@ -170,7 +162,7 @@ local function build(w, pfx, vspan_pool)
     return FrameContainer:new{
         bordersize     = 0,
         padding        = PAD,
-        padding_bottom = PAD2 + BOT_PAD_EXTRA,
+        padding_bottom = PAD2 + bot_pad_extra,
         vg,
     }
 end
@@ -203,15 +195,36 @@ function M.build(w, ctx)
 end
 
 function M.getHeight(ctx)
-    local pfx       = ctx.pfx
-    local show_date = isDateEnabled(pfx)
-    local show_batt = isBattEnabled(pfx)
-    if show_date and show_batt then return _H_DATE_BATT end
-    if show_date               then return _H_DATE      end
-    if show_batt               then return _H_BATT      end
-    return _H_BASE
+    local scale     = Config.getModuleScale("clock", ctx.pfx)
+    local clock_w   = math.floor(_BASE_CLOCK_W   * scale)
+    local date_h    = math.max(8, math.floor(_BASE_DATE_H   * scale))
+    local date_gap  = math.max(2, math.floor(_BASE_DATE_GAP * scale))
+    local batt_h    = math.max(7, math.floor(_BASE_BATT_H   * scale))
+    local batt_gap  = math.max(2, math.floor(_BASE_BATT_GAP * scale))
+
+    local h_base      = clock_w + PAD * 2 + PAD2
+    local show_date   = isDateEnabled(ctx.pfx)
+    local show_batt   = isBattEnabled(ctx.pfx)
+    local h = h_base
+    if show_date then h = h + date_gap + date_h end
+    if show_batt then h = h + batt_gap + batt_h end
+    return h
 end
 
+
+local function _makeScaleItem(ctx_menu)
+    local pfx = ctx_menu.pfx
+    local _lc = ctx_menu._
+    return Config.makeScaleItem({
+        text_func    = function() return _lc("Scale") end,
+        enabled_func = function() return not Config.isScaleLinked() end,
+        title        = _lc("Scale"),
+        info         = _lc("Scale for this module.\n100% is the default size."),
+        get          = function() return Config.getModuleScalePct("clock", pfx) end,
+        set          = function(v) Config.setModuleScale(v, "clock", pfx) end,
+        refresh      = ctx_menu.refresh,
+    })
+end
 function M.getMenuItems(ctx_menu)
     local pfx     = ctx_menu.pfx
     local refresh = ctx_menu.refresh
@@ -239,6 +252,7 @@ function M.getMenuItems(ctx_menu)
             keep_menu_open = true,
             callback       = function() toggle(SETTING_BATTERY, isBattEnabled(pfx)) end,
         },
+        _makeScaleItem(ctx_menu),
     }
 end
 

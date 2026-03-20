@@ -1,6 +1,6 @@
 # SimpleUI for KOReader
 
-A clean, distraction-free UI plugin for KOReader that transforms your reading experience. SimpleUI adds a **dedicated Home Screen**, a customisable bottom navigation bar, and a top status bar, giving you instant access to your library, history, collections, and reading stats without navigating through nested menus.
+A clean, distraction-free UI plugin for KOReader that transforms your reading experience. SimpleUI adds a **dedicated Home Screen**, a customisable bottom navigation bar, a top status bar, and a reworked library title bar, giving you instant access to your library, history, collections, and reading stats without navigating through nested menus.
 
 ---
 
@@ -10,40 +10,64 @@ A clean, distraction-free UI plugin for KOReader that transforms your reading ex
 
 The centrepiece of SimpleUI. A home screen that gives you everything at a glance:
 
-- **Clock & Date** — a large, readable clock with full date display, always visible on your home screen
-- **Currently Reading** — shows your active book with cover art, title, author, reading progress bar, percentage read, and estimated time left
+- **Clock & Date** — a large, readable clock with full date display
+- **Currently Reading** — your active book with cover art, title, author, progress bar, percentage read, and estimated time left
 - **Recent Books** — a row of up to 5 recent books with cover thumbnails and progress indicators; tap any to resume reading
-- **Collections** — your KOReader collections displayed as tappable cards, right on the home screen
-- **Reading Goals** — visual progress tracker for your annual and daily reading goals
-- **Reading Stats** — compact stat cards showing your reading activity at a glance
+- **Collections** — your KOReader collections displayed as tappable cover cards, right on the home screen
+- **Reading Goals** — visual progress tracker for your annual and daily reading goals, including physical books read
+- **Reading Stats** — compact stat cards showing today's reading time, pages, streaks, and all-time totals
 - **Quick Actions** — up to 3 customisable rows of shortcut buttons (Library, History, Wi-Fi toggle, Brightness, Stats, and more)
-- **Quote of the Day** — optional literary quote header, randomly picked from a curated list of 100+ quotes
-- **Custom Header** — choose between clock, clock + date, a custom text label, or the Quote of the Day as your Home Screen header
+- **Quote of the Day** — optional literary header, randomly picked from a curated list of 100+ quotes; can also show your own highlights
 - **Module ordering** — rearrange Home Screen modules in any order to match your workflow
-- **Start with Home Screen** — set the Home Screen as the first screen KOReader opens, so it greets you every time you pick up your device
+- **Per-module scaling** — resize each module independently, or lock all scales together for uniform adjustments
+- **Start with Home Screen** — set the Home Screen as the first screen KOReader opens every time you pick up your device
 
 ### Bottom Navigation Bar
 
 A persistent tab bar at the bottom of the screen for one-tap navigation:
 
-- Up to **5 fully customisable tabs**: Library, History, Collections, Favorites, Continue Reading, Home Screen, Wi-Fi Toggle, Brightness, Stats, and custom folder/collection shortcuts
+- Up to **5 fully customisable tabs**: Library, History, Collections, Favourites, Continue Reading, Home Screen, Wi-Fi Toggle, Brightness, Stats, Bookmark Browser, and custom folder or collection shortcuts
 - **3 display modes**: icons only, text only, or icons + text
-- **Hold anywhere on the bar** to instantly open the navigation settings
+- **Navpager mode** — replaces the pagination bar with Prev/Next arrows at the edges of the bottom bar; arrows dim when there is no previous or next page
+- **Hold anywhere on the bar** to instantly open navigation settings
 
 ### Top Status Bar
 
 A slim status bar always visible at the top of the screen:
 
-- Displays **clock, battery level, Wi-Fi status, frontlight brightness, disk usage, and RAM** — all configurable
+- Displays **clock, battery level, Wi-Fi status, frontlight brightness, disk usage, and RAM** all configurable
 - Each item can be placed on the **left or right** side independently
+
+### Custom Title Bar
+
+A reworked title bar for the Library, History, Collections, and other full-screen views:
+
+- **Back button** — replaces KOReader's default navigation with a cleaner chevron; hides automatically at the root folder, and also hides when the Library's *Lock Home Folder* setting is active and you are already at the home folder
+- **Search button** — quick access to file search, compacts into the freed slot when the back button is hidden
+- **Menu button** — opens the KOReader main menu
+- **Page number in title** — shows "Page X of Y" in the subtitle when browsing multi-page views (enabled automatically by Navpager)
+- **Button size** — three sizes (Compact, Default, Large) for the title bar buttons
+- **Separate layouts** — Library buttons and sub-page buttons (History, Collections, etc.) can be configured independently
+
+### Folder Covers
+
+Custom cover art for folders in the Library mosaic view:
+
+- Automatically uses the **first book cover** found inside a folder
+- Supports a **`.cover.*` image file** placed manually in the folder for full control
+- **Long-press any folder** and tap *Set folder cover…* to pick a specific book's cover as the folder's cover, only visible when Folder Covers is enabled
+- Optional **folder name label** with configurable position (top, centre, bottom) and style (solid or transparent background)
+- Optional **item count badge** with configurable position
+- **Hide selection underline** for a cleaner look
 
 ### Quick Actions
 
 Shortcut buttons configurable both on the Home Screen and in the bottom bar:
 
-- Assign any tab to a **custom folder**, **collection**, or **KOReader plugin action**
-- Quick **Wi-Fi toggle** and **frontlight control** directly from the bar
+- Assign any action to a **custom folder**, **collection**, or **KOReader plugin**
+- Quick **Wi-Fi toggle** and **frontlight control**
 - **Power menu** (Restart, Quit) accessible as a tab
+- **Bookmark Browser** — browse your highlights and bookmarks across all books
 
 ### Settings
 
@@ -76,13 +100,15 @@ SimpleUI has full translation support. The UI language is detected automatically
 | English | *(built-in)* | Complete |
 | Português (Portugal) | `locale/pt_PT.po` | Complete |
 | Português (Brasil) | `locale/pt_BR.po` | Complete |
-| 简体中文 (Chinese) | `locale/zh_CN.po` | Complete |
+| Español | `locale/es.po` | Complete |
+| 简体中文 (Chinese Simplified) | `locale/zh_CN.po` | Complete |
+| Русский (Russian) | `locale/ru.po` | Complete |
 
 ### Adding a new language
 
-All 190 visible strings in the plugin are translatable. To add a new language:
+All 297 visible strings in the plugin are translatable. To add a new language:
 
-1. Copy `locale/simpleui.pot` to `locale/<lang>.po`, using the standard locale code for your language (examples: `de`, `fr`, `es`, `it`, `zh_CN`, `ja`)
+1. Copy `locale/simpleui.pot` to `locale/<lang>.po`, using the standard locale code for your language (examples: `de`, `fr`, `it`, `ja`)
 2. Open the file in any text editor or a dedicated PO editor such as [Poedit](https://poedit.net/)
 3. For each entry, fill in the `msgstr` field with your translation:
 
@@ -108,7 +134,7 @@ The plugin first tries an exact match for the locale code (e.g. `pt_PT.po`), the
 
 ## 🔧 Customising Quotes
 
-To add, remove or edit the Quote of the Day pool, open `quotes.lua` inside the plugin folder. Each entry follows this format:
+To add, remove or edit the Quote of the Day pool, open `desktop_modules/quotes.lua` inside the plugin folder. Each entry follows this format:
 
 ```lua
 { q = "Quote text.", a = "Author Name", b = "Book Title (optional)" }

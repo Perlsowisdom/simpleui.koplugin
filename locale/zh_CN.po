@@ -643,3 +643,272 @@ msgstr "列表"
 
 msgid "Cover for \"%s\""
 msgstr "\"%s\" 的封面"
+
+msgid "    Size"
+msgstr "    大小"
+
+msgid "Apply"
+msgstr "应用"
+
+msgid "Bookmark browser"
+msgstr "书签浏览器"
+
+msgid "Bookmark browser not available."
+msgstr "书签浏览器不可用。"
+
+msgid "Bookmarks"
+msgstr "书签"
+
+msgid "Bottom"
+msgstr "底部"
+
+msgid "Bottom Bar Size"
+msgstr "底部栏大小"
+
+msgid "Change Icons"
+msgstr "更改图标"
+
+msgid "Cover size"
+msgstr "封面大小"
+
+msgid "Cover size  —  %d%%"
+msgstr "封面大小  —  %d%%"
+
+msgid "Fetching bookmarks…"
+msgstr "正在获取书签…"
+
+msgid "Global scale for all modules.\nIndividual overrides in Module Settings take precedence.\n100% is the default size."
+msgstr "所有模块的全局缩放。\n模块设置中的单独覆盖优先。\n100% 为默认大小。"
+
+msgid "Height of the bottom navigation bar.\n100% is the default size."
+msgstr "底部导航栏的高度。\n100% 为默认大小。"
+
+msgid "Height of the top status bar.\n100% is the default size."
+msgstr "顶部状态栏的高度。\n100% 为默认大小。"
+
+msgid "Hidden"
+msgstr "隐藏"
+
+msgid "Home folder"
+msgstr "主文件夹"
+
+msgid "Home folder + subfolders"
+msgstr "主文件夹 + 子文件夹"
+
+msgid "Label Scale"
+msgstr "标签缩放"
+
+msgid "Labels  —  %d%%"
+msgstr "标签  —  %d%%"
+
+msgid "Minimum 1 tab required in navpager mode."
+msgstr "页面导航模式下至少需要 1 个标签。"
+
+msgid "Module Scale"
+msgstr "模块缩放"
+
+msgid "Modules  —  %d%%"
+msgstr "模块  —  %d%%"
+
+msgid "Navigation Bar"
+msgstr "导航栏"
+
+msgid "Navpager"
+msgstr "页面导航器"
+
+msgid "Navpager will be %s after restart.\n\nRestart now?"
+msgstr "页面导航器将在重启后变为 %s。\n\n立即重启？"
+
+msgid "New name…"
+msgstr "新名称…"
+
+msgid "Next"
+msgstr "下一页"
+
+msgid "No highlights found. Open a book and highlight some passages."
+msgstr "未找到高亮内容。请打开一本书并高亮一些段落。"
+
+msgid "Page %1 of %2"
+msgstr "第 %1 页，共 %2 页"
+
+msgid "Page number in title bar"
+msgstr "标题栏中的页码"
+
+msgid "Prev"
+msgstr "上一页"
+
+msgid "Rename"
+msgstr "重命名"
+
+msgid "Replaces the pagination bar with Prev/Next arrows at the edges of the bottom bar.\nThe arrows dim when there is no previous or next page.\nWith navpager active, as few as 1 tab and at most 4 tabs can be configured."
+msgstr "将分页栏替换为底部栏两端的上一页/下一页箭头。\n当没有上一页或下一页时，箭头变暗。\n启用页面导航器时，可配置 1 到 4 个标签。"
+
+msgid "Reset"
+msgstr "重置"
+
+msgid "Reset all scales to default (100%)? This cannot be undone."
+msgstr "将所有缩放重置为默认值 (100%)？此操作无法撤销。"
+
+msgid "Reset to Default Scale"
+msgstr "重置为默认缩放"
+
+msgid "Scale"
+msgstr "缩放"
+
+msgid "Scale  —  %d%%"
+msgstr "缩放  —  %d%%"
+
+msgid "Scale  —  %d%% / %d%%"
+msgstr "缩放  —  %d%% / %d%%"
+
+
+msgid "Scale for the collection thumbnails only.\nThe label text follows the module scale.\n100% is the default size."
+msgstr "仅用于收藏夹缩略图的缩放。\n标签文本跟随模块缩放。\n100% 为默认大小。"
+
+msgid "Scales all modules and labels together.\n100% is the default size."
+msgstr "同时缩放所有模块和标签。\n100% 为默认大小。"
+
+msgid "Scales the section label text above each module.\n100% is the default size."
+msgstr "缩放每个模块上方的分区标签文本。\n100% 为默认大小。"
+
+msgid "Simple UI was updated (%s → %s).\n\nA restart is recommended to apply all changes cleanly."
+msgstr "Simple UI 已更新（%s → %s）。\n\n建议重启以完整应用所有更改。"
+
+msgid "Size  —  %d%%"
+msgstr "大小  —  %d%%"
+
+msgid "Status Bar"
+msgstr "状态栏"
+
+msgid "Top"
+msgstr "顶部"
+
+msgid "Top Bar Size"
+msgstr "顶部栏大小"
+
+msgid "Top separator"
+msgstr "顶部分隔符"
+
+msgid "Visible"
+msgstr "可见"
+
+msgid "Your highlights"
+msgstr "您的高亮内容"
+
+msgid "Disable \"Linked Scale\" first to set a per-module scale."
+msgstr "请先关闭\"联动缩放\"，再设置单个模块的缩放比例。"
+
+
+msgid "Lock Scale"
+msgstr "锁定缩放"
+
+msgid "Disable \"Lock Scale\" first to set a per-module scale."
+msgstr "请先关闭\"锁定缩放\"，再设置单个模块的缩放比例。"
+
+msgid "Disable \"Lock Scale\" first to set a custom label scale."
+msgstr "请先关闭\"锁定缩放\"，再设置自定义标签缩放比例。"
+
+msgid "Text Size"
+msgstr "文字大小"
+
+msgid "Modules"
+msgstr "模块"
+
+msgid "Labels"
+msgstr "标签"
+
+msgid "Scale for this module.\n100% is the default size."
+msgstr "此模块的缩放比例。\n100% 为默认大小。"
+
+msgid "Scale for the collection name text.\n100% is the default size."
+msgstr "书单名称文字的缩放比例。\n100% 为默认大小。"
+
+msgid "Scale for the cover thumbnail only.\n100% is the default size."
+msgstr "仅调整封面缩略图的缩放比例。\n100% 为默认大小。"
+
+msgid "Scale for all text elements (title, author, progress, time).\n100% is the default size."
+msgstr "所有文字元素（书名、作者、进度、时间）的缩放比例。\n100% 为默认大小。"
+
+msgid "Scale for the button label text.\n100% is the default size."
+msgstr "按钮标签文字的缩放比例。\n100% 为默认大小。"
+
+msgid "Scale for the cover thumbnails only.\nText and progress bar follow the module scale.\n100% is the default size."
+msgstr "仅调整封面缩略图的缩放比例。\n文字和进度条跟随模块缩放。\n100% 为默认大小。"
+
+msgid "Scale for the percentage read text.\n100% is the default size."
+msgstr "已读百分比文字的缩放比例。\n100% 为默认大小。"
+
+msgid "Source"
+msgstr "来源"
+
+msgid "Default Quotes"
+msgstr "默认名言"
+
+msgid "My Highlights"
+msgstr "我的批注"
+
+msgid "Quotes + My Highlights"
+msgstr "名言 + 我的批注"
+
+msgid "default"
+msgstr "默认"
+
+msgid "Shows \"Page X of Y\" in the title bar subtitle when browsing the library, history or collections.\nNavpager enables this automatically.\nNot available when Navpager is active."
+msgstr "在浏览书库、历史记录或书单时，在标题栏副标题中显示\"第X页/共Y页\"。\n翻页导航栏会自动启用此功能。\n翻页导航栏激活时不可用。"
+
+msgid "Icon Size"
+msgstr "图标大小"
+
+msgid "Icon Size — %d%%"
+msgstr "图标大小  —  %d%%"
+
+msgid "Label Size"
+msgstr "标签大小"
+
+msgid "Label Size — %d%%"
+msgstr "标签大小  —  %d%%"
+
+msgid "Size of the tab icons.\n100% is the default size."
+msgstr "标签页图标的大小。\n100% 为默认大小。"
+
+msgid "Size of the tab label text.\n100% is the default size."
+msgstr "标签页标签文字的大小。\n100% 为默认大小。"
+
+msgid "Folder Covers"
+msgstr "文件夹封面"
+
+msgid "Folder cover"
+msgstr "文件夹封面"
+
+msgid "Set folder cover…"
+msgstr "设置文件夹封面…"
+
+msgid "No books found in this folder."
+msgstr "此文件夹中未找到书籍。"
+
+msgid "Badge"
+msgstr "徽章"
+
+msgid "Center"
+msgstr "居中"
+
+msgid "Label"
+msgstr "标签"
+
+msgid "Show label"
+msgstr "显示标签"
+
+msgid "Transparent"
+msgstr "透明"
+
+msgid "Hide selection underline"
+msgstr "隐藏选中下划线"
+
+msgid "Author"
+msgstr "作者"
+
+msgid "Progress bar"
+msgstr "进度条"
+
+msgid "Percentage read"
+msgstr "已读百分比"

@@ -587,3 +587,329 @@ msgstr "páginas/día (7 días)"
 
 msgid "visible"
 msgstr "visible"
+
+msgid "    Size"
+msgstr "    Tamaño"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "Bookmark browser"
+msgstr "Explorador de marcadores"
+
+msgid "Bookmark browser not available."
+msgstr "Explorador de marcadores no disponible."
+
+msgid "Bookmarks"
+msgstr "Marcadores"
+
+msgid "Bottom"
+msgstr "Abajo"
+
+msgid "Bottom Bar Size"
+msgstr "Tamaño de la barra inferior"
+
+msgid "Change Icons"
+msgstr "Cambiar iconos"
+
+msgid "Cover size"
+msgstr "Tamaño de portada"
+
+msgid "Cover size  —  %d%%"
+msgstr "Tamaño de portada  —  %d%%"
+
+msgid "Fetching bookmarks…"
+msgstr "Cargando marcadores…"
+
+msgid "Global scale for all modules.\nIndividual overrides in Module Settings take precedence.\n100% is the default size."
+msgstr "Escala global para todos los módulos.\nLas configuraciones individuales en Ajustes de módulo tienen prioridad.\n100% es el tamaño predeterminado."
+
+msgid "Height of the bottom navigation bar.\n100% is the default size."
+msgstr "Altura de la barra de navegación inferior.\n100% es el tamaño predeterminado."
+
+msgid "Height of the top status bar.\n100% is the default size."
+msgstr "Altura de la barra de estado superior.\n100% es el tamaño predeterminado."
+
+msgid "Hidden"
+msgstr "Oculto"
+
+msgid "Home folder"
+msgstr "Carpeta de inicio"
+
+msgid "Home folder + subfolders"
+msgstr "Carpeta de inicio + subcarpetas"
+
+msgid "Label Scale"
+msgstr "Escala de etiquetas"
+
+msgid "Labels  —  %d%%"
+msgstr "Etiquetas  —  %d%%"
+
+msgid "Minimum 1 tab required in navpager mode."
+msgstr "Se necesita un mínimo de 1 pestaña en modo navegador de páginas."
+
+msgid "Module Scale"
+msgstr "Escala de módulo"
+
+msgid "Modules  —  %d%%"
+msgstr "Módulos  —  %d%%"
+
+msgid "Navigation Bar"
+msgstr "Barra de navegación"
+
+msgid "Navpager"
+msgstr "Navegador de páginas"
+
+msgid "Navpager will be %s after restart.\n\nRestart now?"
+msgstr "El navegador de páginas quedará %s después de reiniciar.\n\n¿Reiniciar ahora?"
+
+msgid "New name…"
+msgstr "Nuevo nombre…"
+
+msgid "Next"
+msgstr "Siguiente"
+
+msgid "No highlights found. Open a book and highlight some passages."
+msgstr "No se encontraron resaltados. Abre un libro y resalta algunos pasajes."
+
+msgid "Page %1 of %2"
+msgstr "Página %1 de %2"
+
+msgid "Page number in title bar"
+msgstr "Número de página en la barra de título"
+
+msgid "Prev"
+msgstr "Anterior"
+
+msgid "Rename"
+msgstr "Renombrar"
+
+msgid "Replaces the pagination bar with Prev/Next arrows at the edges of the bottom bar.\nThe arrows dim when there is no previous or next page.\nWith navpager active, as few as 1 tab and at most 4 tabs can be configured."
+msgstr "Reemplaza la barra de paginación con flechas Anterior/Siguiente en los extremos de la barra inferior.\nLas flechas se atenúan cuando no hay página anterior o siguiente.\nCon el navegador de páginas activo, se pueden configurar entre 1 y 4 pestañas."
+
+msgid "Reset"
+msgstr "Restablecer"
+
+msgid "Reset all scales to default (100%)? This cannot be undone."
+msgstr "¿Restablecer todas las escalas al valor predeterminado (100%)? Esta acción no se puede deshacer."
+
+msgid "Reset to Default Scale"
+msgstr "Restablecer escala predeterminada"
+
+msgid "Scale"
+msgstr "Escala"
+
+msgid "Scale  —  %d%%"
+msgstr "Escala  —  %d%%"
+
+msgid "Scale  —  %d%% / %d%%"
+msgstr "Escala  —  %d%% / %d%%"
+
+
+msgid "Scale for the collection thumbnails only.\nThe label text follows the module scale.\n100% is the default size."
+msgstr "Escala solo para las miniaturas de colecciones.\nEl texto de la etiqueta sigue la escala del módulo.\n100% es el tamaño predeterminado."
+
+msgid "Scales all modules and labels together.\n100% is the default size."
+msgstr "Escala todos los módulos y etiquetas juntos.\n100% es el tamaño predeterminado."
+
+msgid "Scales the section label text above each module.\n100% is the default size."
+msgstr "Escala el texto de la etiqueta de sección sobre cada módulo.\n100% es el tamaño predeterminado."
+
+msgid "Simple UI was updated (%s → %s).\n\nA restart is recommended to apply all changes cleanly."
+msgstr "Simple UI se actualizó (%s → %s).\n\nSe recomienda reiniciar para aplicar todos los cambios correctamente."
+
+msgid "Size  —  %d%%"
+msgstr "Tamaño  —  %d%%"
+
+msgid "Status Bar"
+msgstr "Barra de estado"
+
+msgid "Top"
+msgstr "Arriba"
+
+msgid "Top Bar Size"
+msgstr "Tamaño de la barra superior"
+
+msgid "Top separator"
+msgstr "Separador superior"
+
+msgid "Visible"
+msgstr "Visible"
+
+msgid "Your highlights"
+msgstr "Tus resaltados"
+
+msgid "Arrange Buttons"
+msgstr "Reorganizar botones"
+
+msgid "Back"
+msgstr "Atrás"
+
+msgid "Button Size"
+msgstr "Tamaño de botón"
+
+msgid "Cards"
+msgstr "Tarjetas"
+
+msgid "Close"
+msgstr "Cerrar"
+
+msgid "Cover for \"%s\""
+msgstr "Portada de \"%s\""
+
+msgid "Custom Title Bar"
+msgstr "Barra de título personalizada"
+
+msgid "Custom Title Bar will be %s after restart.\n\nRestart now?"
+msgstr "La barra de título personalizada quedará %s después de reiniciar.\n\n¿Reiniciar ahora?"
+
+msgid "Delete quick action \"%s\"?"
+msgstr "¿Eliminar la acción rápida \"%s\"?"
+
+msgid "Library Buttons"
+msgstr "Botones de biblioteca"
+
+msgid "List"
+msgstr "Lista"
+
+msgid "Menu"
+msgstr "Menú"
+
+msgid "More Options"
+msgstr "Más opciones"
+
+msgid "Search"
+msgstr "Buscar"
+
+msgid "Show Battery"
+msgstr "Mostrar batería"
+
+msgid "Show Date"
+msgstr "Mostrar fecha"
+
+msgid "Sub-pages Buttons"
+msgstr "Botones de subpáginas"
+
+msgid "Title"
+msgstr "Título"
+
+msgid "Title Bar"
+msgstr "Barra de título"
+
+msgid "Disable \"Linked Scale\" first to set a per-module scale."
+msgstr "Desactiva \"Escala vinculada\" primero para establecer una escala por módulo."
+
+
+msgid "Lock Scale"
+msgstr "Escala bloqueada"
+
+msgid "Disable \"Lock Scale\" first to set a per-module scale."
+msgstr "Desactiva \"Escala bloqueada\" primero para establecer una escala por módulo."
+
+msgid "Disable \"Lock Scale\" first to set a custom label scale."
+msgstr "Desactiva \"Escala bloqueada\" primero para establecer una escala de etiqueta personalizada."
+
+msgid "Text Size"
+msgstr "Tamaño de texto"
+
+msgid "Modules"
+msgstr "Módulos"
+
+msgid "Labels"
+msgstr "Etiquetas"
+
+msgid "Scale for this module.\n100% is the default size."
+msgstr "Escala para este módulo.\n100% es el tamaño predeterminado."
+
+msgid "Scale for the collection name text.\n100% is the default size."
+msgstr "Escala para el texto del nombre de la colección.\n100% es el tamaño predeterminado."
+
+msgid "Scale for the cover thumbnail only.\n100% is the default size."
+msgstr "Escala solo para la miniatura de portada.\n100% es el tamaño predeterminado."
+
+msgid "Scale for all text elements (title, author, progress, time).\n100% is the default size."
+msgstr "Escala para todos los elementos de texto (título, autor, progreso, tiempo).\n100% es el tamaño predeterminado."
+
+msgid "Scale for the button label text.\n100% is the default size."
+msgstr "Escala para el texto de la etiqueta del botón.\n100% es el tamaño predeterminado."
+
+msgid "Scale for the cover thumbnails only.\nText and progress bar follow the module scale.\n100% is the default size."
+msgstr "Escala solo para las miniaturas de portada.\nEl texto y la barra de progreso siguen la escala del módulo.\n100% es el tamaño predeterminado."
+
+msgid "Scale for the percentage read text.\n100% is the default size."
+msgstr "Escala para el texto de porcentaje leído.\n100% es el tamaño predeterminado."
+
+msgid "Source"
+msgstr "Fuente"
+
+msgid "Default Quotes"
+msgstr "Citas predeterminadas"
+
+msgid "My Highlights"
+msgstr "Mis subrayados"
+
+msgid "Quotes + My Highlights"
+msgstr "Citas + Mis subrayados"
+
+msgid "default"
+msgstr "predeterminado"
+
+msgid "Shows \"Page X of Y\" in the title bar subtitle when browsing the library, history or collections.\nNavpager enables this automatically.\nNot available when Navpager is active."
+msgstr "Muestra \"Página X de Y\" en el subtítulo de la barra de título al navegar por la biblioteca, el historial o las colecciones.\nEl navpager lo activa automáticamente.\nNo disponible cuando el navpager está activo."
+
+msgid "Icon Size"
+msgstr "Tamaño del Icono"
+
+msgid "Icon Size — %d%%"
+msgstr "Tamaño del Icono  —  %d%%"
+
+msgid "Label Size"
+msgstr "Tamaño de la Etiqueta"
+
+msgid "Label Size — %d%%"
+msgstr "Tamaño de la Etiqueta  —  %d%%"
+
+msgid "Size of the tab icons.\n100% is the default size."
+msgstr "Tamaño de los iconos de las pestañas.\n100% es el tamaño predeterminado."
+
+msgid "Size of the tab label text.\n100% is the default size."
+msgstr "Tamaño del texto de las etiquetas de las pestañas.\n100% es el tamaño predeterminado."
+
+msgid "Folder Covers"
+msgstr "Portadas de Carpetas"
+
+msgid "Folder cover"
+msgstr "Portada de carpeta"
+
+msgid "Set folder cover…"
+msgstr "Establecer portada de carpeta…"
+
+msgid "No books found in this folder."
+msgstr "No se encontraron libros en esta carpeta."
+
+msgid "Badge"
+msgstr "Insignia"
+
+msgid "Center"
+msgstr "Centro"
+
+msgid "Label"
+msgstr "Etiqueta"
+
+msgid "Show label"
+msgstr "Mostrar etiqueta"
+
+msgid "Transparent"
+msgstr "Transparente"
+
+msgid "Hide selection underline"
+msgstr "Ocultar subrayado de selección"
+
+msgid "Author"
+msgstr "Autor"
+
+msgid "Progress bar"
+msgstr "Barra de progreso"
+
+msgid "Percentage read"
+msgstr "Porcentaje leído"

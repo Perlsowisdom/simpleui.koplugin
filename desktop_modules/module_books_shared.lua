@@ -11,30 +11,90 @@ local Geom        = require("ui/geometry")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Screen      = Device.screen
 local lfs         = require("libs/libkoreader-lfs")
-local Config      = require("config")
+local Config      = require("sui_config")
 
 local SH = {}
 
 -- ---------------------------------------------------------------------------
--- Dimensions (exposed for height calculations in modules)
+-- Base dimensions — computed once at load time from device DPI.
+-- These are the 100%-scale reference values; never modify them at runtime.
 -- ---------------------------------------------------------------------------
-SH.COVER_W  = Screen:scaleBySize(102)
-SH.COVER_H  = Screen:scaleBySize(153)
-SH.RECENT_W = Screen:scaleBySize(75)
-SH.RECENT_H = Screen:scaleBySize(112)
+local _BASE_COVER_W  = Screen:scaleBySize(102)
+local _BASE_COVER_H  = Screen:scaleBySize(153)
+local _BASE_RECENT_W = Screen:scaleBySize(75)
+local _BASE_RECENT_H = Screen:scaleBySize(112)
+local _BASE_RB_GAP1    = Screen:scaleBySize(4)
+local _BASE_RB_BAR_H   = Screen:scaleBySize(5)
+local _BASE_RB_GAP2    = Screen:scaleBySize(3)
+local _BASE_RB_LABEL_H = Screen:scaleBySize(14)
 
-local _RB_GAP1    = Screen:scaleBySize(4)
-local _RB_BAR_H   = Screen:scaleBySize(5)
-local _RB_GAP2    = Screen:scaleBySize(3)
-local _RB_LABEL_H = Screen:scaleBySize(14)
-SH.RECENT_CELL_H  = SH.RECENT_H + _RB_GAP1 + _RB_BAR_H + _RB_GAP2 + _RB_LABEL_H
+-- Flat aliases kept for any call-site that reads SH.COVER_W etc. directly
+-- without going through getDims(). These always reflect 100% scale and are
+-- present only for backward-compat — new code should use getDims().
+SH.COVER_W       = _BASE_COVER_W
+SH.COVER_H       = _BASE_COVER_H
+SH.RECENT_W      = _BASE_RECENT_W
+SH.RECENT_H      = _BASE_RECENT_H
+SH.RB_GAP1       = _BASE_RB_GAP1
+SH.RB_BAR_H      = _BASE_RB_BAR_H
+SH.RB_GAP2       = _BASE_RB_GAP2
+SH.RECENT_CELL_H = _BASE_RECENT_H + _BASE_RB_GAP1 + _BASE_RB_BAR_H
+                   + _BASE_RB_GAP2 + _BASE_RB_LABEL_H
 
--- Exposed so module_recent.lua can use them directly without recomputing.
-SH.RB_GAP1   = _RB_GAP1
-SH.RB_BAR_H  = _RB_BAR_H
-SH.RB_GAP2   = _RB_GAP2
+-- ---------------------------------------------------------------------------
+-- getDims(scale) — returns a table of scaled dimensions for one render pass.
+-- Called at the top of build() / getHeight() in module_currently and
+-- module_recent.  Keeps all math in one place; modules stay declarative.
+--
+-- scale: float from Config.getModuleScale() — e.g. 0.75, 1.0, 1.25.
+-- Returns a plain table (no metatable overhead); keys mirror SH flat names.
+-- ---------------------------------------------------------------------------
+-- getDims(scale, thumb_scale)
+-- scale:       overall module scale (affects everything)
+-- thumb_scale: independent cover/thumbnail scale multiplier (affects cover dims only).
+--              Text, progress bar and gaps follow only `scale`.
+--              Pass nil or 1.0 to apply no thumb adjustment.
+function SH.getDims(scale, thumb_scale)
+    scale       = scale       or 1.0
+    thumb_scale = thumb_scale or 1.0
+    -- Combined scale applied to cover dimensions only.
+    local cs = scale * thumb_scale
+    if scale == 1.0 and thumb_scale == 1.0 then
+        -- Fast path: return the pre-computed base values without any math.
+        return {
+            COVER_W       = _BASE_COVER_W,
+            COVER_H       = _BASE_COVER_H,
+            RECENT_W      = _BASE_RECENT_W,
+            RECENT_H      = _BASE_RECENT_H,
+            RB_GAP1       = _BASE_RB_GAP1,
+            RB_BAR_H      = _BASE_RB_BAR_H,
+            RB_GAP2       = _BASE_RB_GAP2,
+            RB_LABEL_H    = _BASE_RB_LABEL_H,
+            RECENT_CELL_H = SH.RECENT_CELL_H,
+        }
+    end
+    -- Text/bar/gap dims scale with `scale` only — unaffected by thumb_scale.
+    local g1  = math.max(1, math.floor(_BASE_RB_GAP1    * scale))
+    local bh  = math.max(1, math.floor(_BASE_RB_BAR_H   * scale))
+    local g2  = math.max(1, math.floor(_BASE_RB_GAP2    * scale))
+    local lh  = math.max(1, math.floor(_BASE_RB_LABEL_H * scale))
+    -- Cover dims scale with the combined scale (scale × thumb_scale).
+    local rh  = math.floor(_BASE_RECENT_H * cs)
+    -- RECENT_CELL_H = cover height + bar + gaps + label — each part scaled independently.
+    return {
+        COVER_W       = math.floor(_BASE_COVER_W  * cs),
+        COVER_H       = math.floor(_BASE_COVER_H  * cs),
+        RECENT_W      = math.floor(_BASE_RECENT_W * cs),
+        RECENT_H      = rh,
+        RB_GAP1       = g1,
+        RB_BAR_H      = bh,
+        RB_GAP2       = g2,
+        RB_LABEL_H    = lh,
+        RECENT_CELL_H = rh + g1 + bh + g2 + lh,
+    }
+end
 
-local _CLR_COVER_BORDER = Blitbuffer.gray(0.45)  -- matches section label text colour
+local _CLR_COVER_BORDER = Blitbuffer.COLOR_BLACK
 local _CLR_COVER_BG     = Blitbuffer.gray(0.88)
 local _CLR_BAR_BG       = Blitbuffer.gray(0.15)
 local _CLR_BAR_FG       = Blitbuffer.gray(0.75)
@@ -115,7 +175,7 @@ end
 -- formatTimeLeft
 -- ---------------------------------------------------------------------------
 function SH.formatTimeLeft(pct, pages, avg_time)
-    if not avg_time or avg_time <= 0 or not pct or pct <= 0 or not pages then return nil end
+    if not avg_time or avg_time <= 0 or not pct or pct < 0 or not pages then return nil end
     local remaining = math.floor(pages * (1.0 - pct))
     if remaining <= 0 then return nil end
     local secs = math.floor(remaining * avg_time)
@@ -144,6 +204,7 @@ function SH.getBookData(filepath, prefetched, shared_conn)
     local percent, pages, md5, stat_pages, stat_total_time = 0, nil, nil, nil, nil
 
     if prefetched then
+        -- Fast path: use data already extracted by prefetchBooks.
         percent         = prefetched.percent or 0
         pages           = prefetched.doc_pages
         md5             = prefetched.partial_md5_checksum
@@ -151,7 +212,10 @@ function SH.getBookData(filepath, prefetched, shared_conn)
         stat_total_time = prefetched.stat_total_time
         meta.title      = prefetched.title
         meta.authors    = prefetched.authors
-    else
+    elseif prefetched ~= false then
+        -- prefetched==nil means prefetchBooks was not called (e.g. direct call).
+        -- prefetched==false means prefetchBooks tried but DS.open failed — skip
+        -- the lfs.attributes syscall and DS.open retry; fall through with defaults.
         local DS = getDocSettings()
         if DS and lfs.attributes(filepath, "mode") == "file" then
             local ok2, ds = pcall(DS.open, DS, filepath)
@@ -174,7 +238,23 @@ function SH.getBookData(filepath, prefetched, shared_conn)
     end
 
     local avg_time
-    if md5 and shared_conn then
+    -- Source 1: live ReaderUI session — most accurate when a book is open.
+    pcall(function()
+        local ReaderUI = package.loaded["apps/reader/readerui"]
+        if ReaderUI and ReaderUI.instance then
+            local stats = ReaderUI.instance.statistics
+            if stats and stats.avg_time and stats.avg_time > 0 then
+                -- Only use if this is the same book currently being read.
+                local rui_fp = ReaderUI.instance.document
+                    and ReaderUI.instance.document.file
+                if rui_fp == filepath then
+                    avg_time = stats.avg_time
+                end
+            end
+        end
+    end)
+    -- Source 2: statistics SQLite DB (covers past sessions).
+    if not avg_time and md5 and shared_conn then
         pcall(function()
             if not shared_conn._stmt_avg then
                 shared_conn._stmt_avg = shared_conn:prepare([[
@@ -190,6 +270,7 @@ function SH.getBookData(filepath, prefetched, shared_conn)
             if rp > 0 and tt > 0 then avg_time = tt / rp end
         end)
     end
+    -- Source 3: doc settings stats (written by Statistics plugin on close).
     if not avg_time and stat_pages and stat_pages > 0
             and stat_total_time and stat_total_time > 0 then
         avg_time = stat_total_time / stat_pages
@@ -222,8 +303,11 @@ function SH.prefetchBooks(show_currently, show_recent)
     end
 
     local DS = getDocSettings()
-    for i, entry in ipairs(ReadHistory.hist or {}) do
-        local fp = entry.file
+    -- When only Recent is needed, skip history[1] (currently reading) entirely.
+    local start_i = show_currently and 1 or 2
+    for i = start_i, #(ReadHistory.hist or {}) do
+        local entry = ReadHistory.hist[i]
+        local fp = entry and entry.file
         if fp and lfs.attributes(fp, "mode") == "file" then
             if i == 1 and show_currently then
                 state.current_fp = fp
@@ -242,6 +326,10 @@ function SH.prefetchBooks(show_currently, show_recent)
                             stat_total_time      = rs.total_time_in_sec,
                         }
                         pcall(function() ds:close() end)
+                    else
+                        -- Signal that DS.open was attempted but failed — getBookData
+                        -- will skip the lfs.attributes syscall and DS.open retry.
+                        state.prefetched_data[fp] = false
                     end
                 end
             elseif i > 1 and show_recent and #state.recent_fps < 5 then
@@ -262,6 +350,8 @@ function SH.prefetchBooks(show_currently, show_recent)
                             stat_total_time      = rs.total_time_in_sec,
                         }
                         pcall(function() ds:close() end)
+                    else
+                        state.prefetched_data[fp] = false
                     end
                 end
                 if pct < 1.0 then state.recent_fps[#state.recent_fps + 1] = fp end

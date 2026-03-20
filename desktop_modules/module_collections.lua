@@ -9,6 +9,7 @@ local Font            = require("ui/font")
 local FrameContainer  = require("ui/widget/container/framecontainer")
 local Geom            = require("ui/geometry")
 local GestureRange    = require("ui/gesturerange")
+local UIManager       = require("ui/uimanager")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local ImageWidget     = require("ui/widget/imagewidget")
 local InputContainer  = require("ui/widget/container/inputcontainer")
@@ -22,46 +23,97 @@ local Screen          = Device.screen
 local logger          = require("logger")
 local lfs             = require("libs/libkoreader-lfs")
 local _               = require("gettext")
-local Config          = require("config")
+local Config          = require("sui_config")
 
-local UI           = require("ui")
+local UI           = require("sui_core")
 local CLR_TEXT_SUB = UI.CLR_TEXT_SUB
 local PAD     = UI.PAD
 local PAD2    = UI.PAD2
 local MOD_GAP = UI.MOD_GAP
 
-local COLL_W  = Screen:scaleBySize(75)
-local COLL_H  = Screen:scaleBySize(112)
-local ACCENT_H = Screen:scaleBySize(4)
-local CELL_W   = COLL_W
-local CELL_H   = COLL_H + ACCENT_H
+-- Base dimensions at 100% scale — never modified at runtime.
+local _BASE_COLL_W       = Screen:scaleBySize(75)
+local _BASE_COLL_H       = Screen:scaleBySize(112)
+local _BASE_ACCENT_H     = Screen:scaleBySize(4)
+local _BASE_LABEL_LINE_H = Screen:scaleBySize(14)
+local _BASE_LABEL_GAP    = Screen:scaleBySize(4)   -- gap between cover and label
+local _BASE_BADGE_SZ       = Screen:scaleBySize(16)
+local _BASE_BADGE_MARGIN   = Screen:scaleBySize(4)  -- right margin
+local _BASE_BADGE_MARGIN_T = Screen:scaleBySize(8)  -- top margin
+local _BASE_EDGE_THICK   = Screen:scaleBySize(3)
+local _BASE_EDGE_MARGIN  = Screen:scaleBySize(1)
+local _BASE_PH_COVER_FS  = Screen:scaleBySize(12)  -- placeholder initials font
+local _BASE_COLL_LBL_FS  = Screen:scaleBySize(8)   -- collection name label font
+local _BASE_BADGE_FS     = Screen:scaleBySize(6)    -- badge font (~0.375 x badge_sz)
+local _BASE_EMPTY_H      = Screen:scaleBySize(36)
+local _BASE_EMPTY_FS     = Screen:scaleBySize(10)
 
-local LABEL_LINE_H = Screen:scaleBySize(14)
-local COLL_CELL_H  = CELL_H + Screen:scaleBySize(4) + LABEL_LINE_H
-local BADGE_SZ     = Screen:scaleBySize(18)
-local BADGE_MARGIN = Screen:scaleBySize(3)
+local EDGE_COLOR = Blitbuffer.gray(0.55)
+local EDGE_H1    = 0.97   -- inner line height fraction of COLL_H
+local EDGE_H2    = 0.94   -- outer line height fraction
 
--- Stack effect: two vertical lines to the left of the main cover,
--- mimicking the "pages" effect (same technique as the folder-cover patch).
-local EDGE_COLOR  = Blitbuffer.gray(0.55)  -- line colour
-local EDGE_THICK  = Screen:scaleBySize(3)  -- line width (horizontal extent)
-local EDGE_MARGIN = Screen:scaleBySize(1)  -- gap between lines (matches Size.line.medium from patch)
-local EDGE_H1     = 0.97                   -- inner line height as fraction of COLL_H
-local EDGE_H2     = 0.94                   -- outer line height as fraction of COLL_H
--- Total extra width consumed to the left of the cover.
-local STACK_EXTRA  = 2 * EDGE_THICK + 2 * EDGE_MARGIN
-local STACK_CELL_W = COLL_W + STACK_EXTRA
-
-local LABEL_H = UI.LABEL_H
-
-local _CLR_COVER_BORDER = Blitbuffer.gray(0.45)  -- matches section label text colour
+local _CLR_COVER_BORDER = Blitbuffer.COLOR_BLACK
 local _CLR_COVER_BG     = Blitbuffer.gray(0.88)
+
+local LABEL_H = UI.LABEL_H  -- kept for any external callers; getHeight() uses getScaledLabelH()
+
+-- getDims(scale, thumb_scale)
+-- scale:       overall module scale — affects all dimensions.
+-- thumb_scale: independent thumbnail scale — affects cover/badge/edge dims only.
+--              Label text and gaps follow `scale` only.
+local function getDims(scale, thumb_scale)
+    scale       = scale       or 1.0
+    thumb_scale = thumb_scale or 1.0
+    -- Combined scale for cover-related dimensions only.
+    local cs = scale * thumb_scale
+    local coll_w       = math.floor(_BASE_COLL_W       * cs)
+    local coll_h       = math.floor(_BASE_COLL_H       * cs)
+    local accent_h     = math.max(1, math.floor(_BASE_ACCENT_H     * cs))
+    local badge_sz       = math.max(6, math.floor(_BASE_BADGE_SZ       * cs))
+    local badge_margin   = math.max(1, math.floor(_BASE_BADGE_MARGIN   * cs))
+    local badge_margin_t = math.max(1, math.floor(_BASE_BADGE_MARGIN_T * cs))
+    local edge_thick   = math.max(1, math.floor(_BASE_EDGE_THICK   * cs))
+    local edge_margin  = math.max(1, math.floor(_BASE_EDGE_MARGIN  * cs))
+    -- Label text and gaps scale only with `scale`, not thumb_scale.
+    local label_line_h = math.max(8, math.floor(_BASE_LABEL_LINE_H * scale))
+    local label_gap    = math.max(1, math.floor(_BASE_LABEL_GAP    * scale))
+    local stack_extra  = 2 * edge_thick + 2 * edge_margin
+    return {
+        coll_w       = coll_w,
+        coll_h       = coll_h,
+        accent_h     = accent_h,
+        label_line_h = label_line_h,
+        label_gap    = label_gap,
+        badge_sz       = badge_sz,
+        badge_margin   = badge_margin,
+        badge_margin_t = badge_margin_t,
+        edge_thick   = edge_thick,
+        edge_margin  = edge_margin,
+        stack_extra  = stack_extra,
+        stack_cell_w = coll_w + stack_extra,
+        cell_h       = coll_h + accent_h,
+        coll_cell_h  = coll_h + accent_h + label_gap + label_line_h,
+        ph_cover_fs  = math.max(7, math.floor(_BASE_PH_COVER_FS * cs)),
+        coll_lbl_fs  = math.max(6, math.floor(_BASE_COLL_LBL_FS * scale)),
+        badge_fs     = math.floor(badge_sz * (_BASE_BADGE_FS / _BASE_BADGE_SZ)),
+        empty_h      = math.max(16, math.floor(_BASE_EMPTY_H    * scale)),
+        empty_fs     = math.max(7,  math.floor(_BASE_EMPTY_FS   * scale)),
+    }
+end
 
 -- ---------------------------------------------------------------------------
 -- Settings keys
 -- ---------------------------------------------------------------------------
 local SETTINGS_KEY       = "navbar_collections_list"
 local COVER_OVERRIDE_KEY = "navbar_collections_covers"
+local BADGE_POSITION_KEY = "navbar_collections_badge_position"
+
+local function getBadgePosition()
+    return G_reader_settings:readSetting(BADGE_POSITION_KEY) or "top"
+end
+local function saveBadgePosition(v)
+    G_reader_settings:saveSetting(BADGE_POSITION_KEY, v)
+end
 
 local function getSelectedCollections()
     return G_reader_settings:readSetting(SETTINGS_KEY) or {}
@@ -114,7 +166,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Cover cell
 -- ---------------------------------------------------------------------------
-local function buildCoverCell(files, cover_override, coll_name, count)
+local function buildCoverCell(files, cover_override, coll_name, count, d)
     local front_fp = cover_override
     if front_fp and lfs.attributes(front_fp, "mode") ~= "file" then front_fp = nil end
     if not front_fp and #files > 0 then front_fp = files[1] end
@@ -122,12 +174,12 @@ local function buildCoverCell(files, cover_override, coll_name, count)
     -- Main cover (or placeholder).
     local cover
     if front_fp and lfs.attributes(front_fp, "mode") == "file" then
-        local raw = getBookCover(front_fp, COLL_W, COLL_H)
+        local raw = getBookCover(front_fp, d.coll_w, d.coll_h)
         if raw then
             cover = FrameContainer:new{
                 bordersize = 1, color = _CLR_COVER_BORDER,
                 padding    = 0, margin = 0,
-                dimen      = Geom:new{ w = COLL_W, h = COLL_H },
+                dimen      = Geom:new{ w = d.coll_w, h = d.coll_h },
                 raw,
             }
         end
@@ -136,66 +188,57 @@ local function buildCoverCell(files, cover_override, coll_name, count)
         cover = FrameContainer:new{
             bordersize = 1, color = _CLR_COVER_BORDER,
             background = _CLR_COVER_BG, padding = 0,
-            dimen      = Geom:new{ w = COLL_W, h = COLL_H },
+            dimen      = Geom:new{ w = d.coll_w, h = d.coll_h },
             CenterContainer:new{
-                dimen = Geom:new{ w = COLL_W, h = COLL_H },
+                dimen = Geom:new{ w = d.coll_w, h = d.coll_h },
                 TextWidget:new{
                     text = (coll_name or "?"):sub(1, 2):upper(),
-                    face = Font:getFace("smallinfofont", Screen:scaleBySize(12)),
+                    face = Font:getFace("smallinfofont", d.ph_cover_fs),
                 },
             },
         }
     end
 
-    -- Stack effect: two vertical lines to the left of the cover, with
-    -- decreasing height outward — same technique as the folder-cover patch
-    -- (which uses horizontal lines above the cover for the same visual).
-    local h1 = math.floor(COLL_H * EDGE_H1)  -- inner line (taller, closer to cover)
-    local h2 = math.floor(COLL_H * EDGE_H2)  -- outer line (shorter, furthest left)
-    -- Centre each line vertically relative to COLL_H.
-    local y1 = math.floor((COLL_H - h1) / 2)
-    local y2 = math.floor((COLL_H - h2) / 2)
+    local h1 = math.floor(d.coll_h * EDGE_H1)
+    local h2 = math.floor(d.coll_h * EDGE_H2)
+    local y1 = math.floor((d.coll_h - h1) / 2)
+    local y2 = math.floor((d.coll_h - h2) / 2)
 
-    -- The two edge lines and the cover are laid out in a HorizontalGroup.
-    -- Each line is wrapped in an OverlapGroup so we can vertically centre it
-    -- inside a fixed COLL_H-tall slot without affecting the cover position.
     local function edgeLine(h, y_off)
         local line = LineWidget:new{
-            dimen      = Geom:new{ w = EDGE_THICK, h = h },
+            dimen      = Geom:new{ w = d.edge_thick, h = h },
             background = EDGE_COLOR,
         }
         line.overlap_offset = { 0, y_off }
         return OverlapGroup:new{
-            dimen = Geom:new{ w = EDGE_THICK, h = COLL_H },
+            dimen = Geom:new{ w = d.edge_thick, h = d.coll_h },
             line,
         }
     end
 
     local stack = HorizontalGroup:new{
         align = "top",
-        edgeLine(h2, y2),                              -- outer (leftmost)
-        HorizontalSpan:new{ width = EDGE_MARGIN },
-        edgeLine(h1, y1),                              -- inner
-        HorizontalSpan:new{ width = EDGE_MARGIN },
+        edgeLine(h2, y2),
+        HorizontalSpan:new{ width = d.edge_margin },
+        edgeLine(h1, y1),
+        HorizontalSpan:new{ width = d.edge_margin },
         cover,
     }
 
     local accent = FrameContainer:new{
         bordersize = 0, padding = 0,
         background = Blitbuffer.COLOR_BLACK,
-        dimen      = Geom:new{ w = COLL_W, h = ACCENT_H },
+        dimen      = Geom:new{ w = d.coll_w, h = d.accent_h },
         VerticalSpan:new{ width = 0 },
     }
 
-    -- The accent bar sits under the cover only (not the lines), so we use
-    -- an OverlapGroup for the full cell to position it precisely.
     local base = VerticalGroup:new{ align = "left", stack, accent }
 
     local badge_inner = CenterContainer:new{
-        dimen = Geom:new{ w = BADGE_SZ, h = BADGE_SZ },
+        dimen = Geom:new{ w = d.badge_sz, h = d.badge_sz },
         TextWidget:new{
             text    = tostring(math.min(count, 99)),
-            face    = Font:getFace("cfont", Screen:scaleBySize(9)),
+            face    = Font:getFace("cfont", d.badge_fs),
             fgcolor = Blitbuffer.COLOR_WHITE,
             bold    = true,
         },
@@ -203,19 +246,20 @@ local function buildCoverCell(files, cover_override, coll_name, count)
     local badge = FrameContainer:new{
         bordersize = 0,
         background = Blitbuffer.COLOR_BLACK,
-        radius     = math.floor(BADGE_SZ / 2),
+        radius     = math.floor(d.badge_sz / 2),
         padding    = 0,
-        dimen      = Geom:new{ w = BADGE_SZ, h = BADGE_SZ },
+        dimen      = Geom:new{ w = d.badge_sz, h = d.badge_sz },
         badge_inner,
     }
-    -- Badge on the bottom-right of the main cover.
     badge.overlap_offset = {
-        STACK_EXTRA + COLL_W - BADGE_SZ - BADGE_MARGIN,
-        COLL_H - BADGE_SZ - BADGE_MARGIN,
+        d.stack_extra + d.coll_w - d.badge_sz - d.badge_margin,
+        getBadgePosition() == "bottom"
+            and (d.coll_h + d.accent_h - d.badge_sz - d.badge_margin_t)
+            or  d.badge_margin_t,
     }
 
     return OverlapGroup:new{
-        dimen = Geom:new{ w = STACK_CELL_W, h = CELL_H },
+        dimen = Geom:new{ w = d.stack_cell_w, h = d.cell_h },
         base, badge,
     }
 end
@@ -262,18 +306,21 @@ function M.getCountLabel(_pfx)
     return string.format("(%d/%d — %d left)", n, MAX_COLL, rem)
 end
 
-local _EMPTY_H = Screen:scaleBySize(36)
-
 function M.build(w, ctx)
+    local scale       = Config.getModuleScale("collections", ctx.pfx)
+    local thumb_scale = Config.getThumbScale("collections", ctx.pfx)
+    local lbl_scale   = Config.getItemLabelScale("collections", ctx.pfx)
+    local d           = getDims(scale, thumb_scale)
+    -- Apply independent label text scale on top of module scale.
+    d.coll_lbl_fs = math.max(6, math.floor(d.coll_lbl_fs * lbl_scale))
     local selected = getSelectedCollections()
+
     if #selected == 0 then
-        local CenterContainer = require("ui/widget/container/centercontainer")
-        local _lc = require("gettext")
         return CenterContainer:new{
-            dimen = Geom:new{ w = w, h = _EMPTY_H },
-            require("ui/widget/textwidget"):new{
-                text    = _lc("No collections selected"),
-                face    = Font:getFace("cfont", Screen:scaleBySize(10)),
+            dimen = Geom:new{ w = w, h = d.empty_h },
+            TextWidget:new{
+                text    = _("No collections selected"),
+                face    = Font:getFace("cfont", d.empty_fs),
                 fgcolor = CLR_TEXT_SUB,
                 width   = w - PAD * 2,
             },
@@ -291,32 +338,34 @@ function M.build(w, ctx)
         if rc._read then pcall(function() rc:_read() end) end
     end
 
-    local gap = math.floor((inner_w - 5 * STACK_CELL_W) / 4)
+    -- Always distribute across 5 slots so spacing is consistent regardless
+    -- of how many collections are selected.
+    local gap = math.floor((inner_w - 5 * d.stack_cell_w) / 4)
     local row = HorizontalGroup:new{ align = "top" }
 
     for i = 1, cols do
         local coll_name = selected[i]
         local files     = rc and getCollectionFilesFromRC(rc, coll_name) or {}
         local count     = #files
-        local thumb     = buildCoverCell(files, overrides[coll_name], coll_name, count)
+        local thumb     = buildCoverCell(files, overrides[coll_name], coll_name, count, d)
 
         local label_w = TextWidget:new{
             text      = coll_name,
-            face      = Font:getFace("cfont", Screen:scaleBySize(8)),
+            face      = Font:getFace("cfont", d.coll_lbl_fs),
             fgcolor   = CLR_TEXT_SUB,
-            width     = STACK_CELL_W,
+            width     = d.stack_cell_w,
             alignment = "center",
         }
 
         local cell_vg = VerticalGroup:new{
             align = "center",
             thumb,
-            VerticalSpan:new{ width = Screen:scaleBySize(4) },
+            VerticalSpan:new{ width = d.label_gap },
             label_w,
         }
 
         local tappable = InputContainer:new{
-            dimen      = Geom:new{ w = STACK_CELL_W, h = COLL_CELL_H },
+            dimen      = Geom:new{ w = d.stack_cell_w, h = d.coll_cell_h },
             [1]        = cell_vg,
             _coll_name = coll_name,
         }
@@ -347,10 +396,12 @@ function M.build(w, ctx)
 end
 
 function M.getHeight(_ctx)
+    local d = getDims(Config.getModuleScale("collections", _ctx and _ctx.pfx),
+                      Config.getThumbScale("collections", _ctx and _ctx.pfx))
     if #getSelectedCollections() == 0 then
-        return LABEL_H + _EMPTY_H
+        return Config.getScaledLabelH() + d.empty_h
     end
-    return LABEL_H + COLL_CELL_H
+    return Config.getScaledLabelH() + d.coll_cell_h
 end
 
 -- Settings API (usados por getMenuItems e externamente pelo menu.lua legado)
@@ -361,10 +412,38 @@ function M.saveCoverOverrides(t) saveCoverOverrides(t) end
 function M.saveCoverOverride(coll_name, filepath)
     local t = getCoverOverrides(); t[coll_name] = filepath; saveCoverOverrides(t)
 end
-function M.clearCoverOverride(coll_name)
-    local t = getCoverOverrides(); t[coll_name] = nil; saveCoverOverrides(t)
+function M.getBadgePosition()      return getBadgePosition() end
+function M.saveBadgePosition(v)    saveBadgePosition(v) end
+
+
+
+
+local function _makeScaleItem(ctx_menu)
+    local pfx = ctx_menu.pfx
+    local _lc = ctx_menu._
+    return Config.makeScaleItem({
+        text_func    = function() return _lc("Scale") end,
+        enabled_func = function() return not Config.isScaleLinked() end,
+        title        = _lc("Scale"),
+        info         = _lc("Scale for this module.\n100% is the default size."),
+        get          = function() return Config.getModuleScalePct("collections", pfx) end,
+        set          = function(v) Config.setModuleScale(v, "collections", pfx) end,
+        refresh      = ctx_menu.refresh,
+    })
 end
 
+local function _makeItemLabelScaleItem(ctx_menu)
+    local pfx = ctx_menu.pfx
+    local _lc = ctx_menu._
+    return Config.makeScaleItem({
+        text_func = function() return _lc("Text Size") end,
+        title     = _lc("Text Size"),
+        info      = _lc("Scale for the collection name text.\n100% is the default size."),
+        get       = function() return Config.getItemLabelScalePct("collections", pfx) end,
+        set       = function(v) Config.setItemLabelScale(v, "collections", pfx) end,
+        refresh   = ctx_menu.refresh,
+    })
+end
 function M.getMenuItems(ctx_menu)
     local _UIManager  = ctx_menu.UIManager
     local InfoMessage = ctx_menu.InfoMessage
@@ -446,7 +525,7 @@ function M.getMenuItems(ctx_menu)
 
     local items = {}
     items[#items + 1] = {
-        text = _lc("Arrange Collections"), keep_menu_open = true, separator = true,
+        text = _lc("Arrange Collections"), keep_menu_open = true,
         callback = function()
             local cur_sel = M.getSelected()
             if #cur_sel < 2 then
@@ -470,6 +549,29 @@ function M.getMenuItems(ctx_menu)
                     M.saveSelected(new_order); refresh()
                 end,
             })
+        end,
+    }
+    items[#items + 1] = _makeScaleItem(ctx_menu)
+    items[#items + 1] = _makeItemLabelScaleItem(ctx_menu)
+    items[#items + 1] = Config.makeScaleItem({
+        text_func = function() return ctx_menu._("Cover size") end,
+        separator = true,
+        title     = ctx_menu._("Cover size"),
+        info      = ctx_menu._("Scale for the collection thumbnails only.\nThe label text follows the module scale.\n100% is the default size."),
+        get       = function() return Config.getThumbScalePct("collections", ctx_menu.pfx) end,
+        set       = function(v) Config.setThumbScale(v, "collections", ctx_menu.pfx) end,
+        refresh   = ctx_menu.refresh,
+    })
+    items[#items + 1] = {
+        text_func = function()
+            return getBadgePosition() == "bottom"
+                and _lc("Badge position: Bottom")
+                or  _lc("Badge position: Top")
+        end,
+        keep_menu_open = true,
+        callback = function()
+            saveBadgePosition(getBadgePosition() == "bottom" and "top" or "bottom")
+            refresh()
         end,
     }
 

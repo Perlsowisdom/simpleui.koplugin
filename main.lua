@@ -9,14 +9,14 @@ local logger          = require("logger")
 -- All modules capture local _ = require("gettext") at load time — if we
 -- replace package.loaded["gettext"] here, every subsequent require("gettext")
 -- in this plugin receives our wrapper automatically.
-local I18n = require("i18n")
+local I18n = require("sui_i18n")
 I18n.install()
 
-local Config    = require("config")
-local UI        = require("ui")
-local Bottombar = require("bottombar")
-local Topbar    = require("topbar")
-local Patches   = require("patches")
+local Config    = require("sui_config")
+local UI        = require("sui_core")
+local Bottombar = require("sui_bottombar")
+local Topbar    = require("sui_topbar")
+local Patches   = require("sui_patches")
 
 local SimpleUIPlugin = WidgetContainer:new{
     name = "simpleui",
@@ -49,9 +49,39 @@ local SimpleUIPlugin = WidgetContainer:new{
 
 function SimpleUIPlugin:init()
     local ok, err = pcall(function()
+        -- Detect hot update: compare the version now on disk with what was
+        -- running last session. If they differ, warn the user to restart so
+        -- that all plugin modules are loaded fresh.
+        local meta_ok, meta = pcall(require, "_meta")
+        local current_version = meta_ok and meta and meta.version
+        local prev_version = G_reader_settings:readSetting("simpleui_loaded_version")
+        if current_version then
+            if prev_version and prev_version ~= current_version then
+                logger.info("simpleui: updated from", prev_version, "to", current_version,
+                    "— restart recommended")
+                UIManager:scheduleIn(1, function()
+                    local InfoMessage = require("ui/widget/infomessage")
+                    UIManager:show(InfoMessage:new{
+                        text = string.format(
+                            _("Simple UI was updated (%s → %s).\n\nA restart is recommended to apply all changes cleanly."),
+                            prev_version, current_version
+                        ),
+                        timeout = 6,
+                    })
+                end)
+            end
+            G_reader_settings:saveSetting("simpleui_loaded_version", current_version)
+        end
+
         Config.applyFirstRunDefaults()
         Config.migrateOldCustomSlots()
-        Config.sanitizeQASlots()  -- remove orphaned custom QA ids from all slots
+        -- Only sanitize QA slots when custom QAs actually exist.
+        -- getCustomQAList() is a single settings read; skipping the full
+        -- sanitize pass on every boot saves several settings reads + writes
+        -- for the common case where no custom QAs have been defined.
+        if next(Config.getCustomQAList()) then
+            Config.sanitizeQASlots()
+        end
         self.ui.menu:registerToMainMenu(self)
         if G_reader_settings:nilOrTrue("simpleui_enabled") then
             Patches.installAll(self)
@@ -69,6 +99,28 @@ function SimpleUIPlugin:init()
     if not ok then logger.err("simpleui: init failed:", tostring(err)) end
 end
 
+-- ---------------------------------------------------------------------------
+-- List of all plugin-owned Lua modules that must be evicted from
+-- package.loaded on teardown so that a hot plugin update (replacing files
+-- without restarting KOReader) always loads fresh code.
+-- ---------------------------------------------------------------------------
+local _PLUGIN_MODULES = {
+    "sui_i18n", "sui_config", "sui_core", "sui_bottombar", "sui_topbar",
+    "sui_patches", "sui_menu", "sui_titlebar", "sui_quickactions",
+    "sui_homescreen", "sui_foldercovers",
+    "desktop_modules/moduleregistry",
+    "desktop_modules/module_books_shared",
+    "desktop_modules/module_clock",
+    "desktop_modules/module_collections",
+    "desktop_modules/module_currently",
+    "desktop_modules/module_quick_actions",
+    "desktop_modules/module_quote",
+    "desktop_modules/module_reading_goals",
+    "desktop_modules/module_reading_stats",
+    "desktop_modules/module_recent",
+    "desktop_modules/quotes",
+}
+
 function SimpleUIPlugin:onTeardown()
     if self._topbar_timer then
         UIManager:unschedule(self._topbar_timer)
@@ -76,6 +128,24 @@ function SimpleUIPlugin:onTeardown()
     end
     Patches.teardownAll(self)
     I18n.uninstall()
+    -- Give modules with internal upvalue caches a chance to nil them before
+    -- their package.loaded entry is cleared — ensures the GC can collect the
+    -- old tables immediately rather than waiting for the upvalue to be rebound.
+    local mod_recent = package.loaded["desktop_modules/module_recent"]
+    if mod_recent and type(mod_recent.reset) == "function" then
+        pcall(mod_recent.reset)
+    end
+    local mod_rg = package.loaded["desktop_modules/module_reading_goals"]
+    if mod_rg and type(mod_rg.reset) == "function" then
+        pcall(mod_rg.reset)
+    end
+    -- Evict all plugin modules from the Lua module cache so that a hot update
+    -- (files replaced on disk without restarting KOReader) picks up new code
+    -- on the next plugin load, instead of reusing the old in-memory versions.
+    _menu_installer = nil
+    for _, mod in ipairs(_PLUGIN_MODULES) do
+        package.loaded[mod] = nil
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -125,7 +195,7 @@ function SimpleUIPlugin:onResume()
         -- as read inside the reader and returning here).
         -- If it's not visible, showHSAfterResume will open it and onShow will
         -- run _buildContent from scratch anyway.
-        local HS = package.loaded["homescreen"]
+        local HS = package.loaded["sui_homescreen"]
         if HS and HS._instance then
             HS.refresh(false)
         end
@@ -220,54 +290,30 @@ end
 function SimpleUIPlugin:_updateFMHomeIcon() end
 
 -- ---------------------------------------------------------------------------
--- Main menu entry (menu.lua is lazy-loaded on first access)
+-- Main menu entry (sui_menu is lazy-loaded on first access)
 -- ---------------------------------------------------------------------------
 
--- Derive the absolute path to menu.lua from this file's own source path.
--- This is the same technique used by config.lua for icon paths and is robust
--- across all platforms (Kindle, Kobo, Android) regardless of working directory.
--- Using dofile() instead of require() sidesteps two problems:
---   1. require("menu") collides with KOReader's own ui/menu module, which is
---      already registered in package.loaded["menu"] as a table — calling it
---      as a function produces "attempt to call a table value".
---   2. require("plugins/simpleui.koplugin/menu") depends on package.path and
---      the process working directory, which are not guaranteed on all devices.
-local _plugin_dir = debug.getinfo(1, "S").source:match("^@(.+/)[^/]+$") or "./"
-local _menu_path  = _plugin_dir .. "menu.lua"
-
-local menu_module_loaded = false
+local _menu_installer = nil
 
 function SimpleUIPlugin:addToMainMenu(menu_items)
-    if not menu_module_loaded then
-        menu_module_loaded = true
-        -- Capture the stub reference NOW, before the installer overwrites it.
-        -- The installer sets SimpleUIPlugin.addToMainMenu = new_fn (rawset on the
-        -- class), so after dofile() both rawget(SimpleUIPlugin, ...) and
-        -- self.addToMainMenu resolve to the same new function — comparing them
-        -- would always be equal and the menu would never open.
-        -- Comparing against the stub captured here is the correct check.
-        local stub_fn = rawget(SimpleUIPlugin, "addToMainMenu")
-        -- dofile() always re-executes the file (no package.loaded cache),
-        -- so retries after a failed load work automatically.
-        local ok, result = pcall(function()
-            local installer = dofile(_menu_path)
-            installer(SimpleUIPlugin)
-        end)
+    if not _menu_installer then
+        local ok, result = pcall(require, "sui_menu")
         if not ok then
-            menu_module_loaded = false
-            logger.err("simpleui: menu.lua failed to load: " .. tostring(result))
-            menu_items.simpleui = { sorting_hint = "tools", text = "Simple UI", sub_item_table = {} }
+            logger.err("simpleui: sui_menu failed to load: " .. tostring(result))
+            menu_items.simpleui = { sorting_hint = "tools", text = _("Simple UI"), sub_item_table = {} }
             return
         end
-        -- Verify the installer actually replaced addToMainMenu by comparing
-        -- the new raw slot against the stub we captured before the dofile.
+        _menu_installer = result
+        -- Capture the bootstrap stub before installing so we can detect replacement.
+        local bootstrap_fn = rawget(SimpleUIPlugin, "addToMainMenu")
+        _menu_installer(SimpleUIPlugin)
+        -- The installer replaces addToMainMenu on the class; call the real one now.
         local real_fn = rawget(SimpleUIPlugin, "addToMainMenu")
-        if type(real_fn) == "function" and real_fn ~= stub_fn then
+        if type(real_fn) == "function" and real_fn ~= bootstrap_fn then
             real_fn(self, menu_items)
         else
-            menu_module_loaded = false
-            logger.err("simpleui: menu installer did not replace addToMainMenu — opening menu aborted")
-            menu_items.simpleui = { sorting_hint = "tools", text = "Simple UI", sub_item_table = {} }
+            logger.err("simpleui: sui_menu installer did not replace addToMainMenu")
+            menu_items.simpleui = { sorting_hint = "tools", text = _("Simple UI"), sub_item_table = {} }
         end
         return
     end

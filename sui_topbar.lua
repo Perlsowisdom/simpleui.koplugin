@@ -20,7 +20,7 @@ local Screen          = Device.screen
 local logger          = require("logger")
 local _               = require("gettext")
 
-local Config = require("config")
+local Config = require("sui_config")
 
 local M = {}
 
@@ -68,11 +68,11 @@ local function _cached(key, fn)
 end
 
 local function _getTopbarScale()
-    local key = G_reader_settings:readSetting("navbar_topbar_size") or "default"
-    return key == "large" and 1.4 or 1.0
+    local Config = require("sui_config")
+    return Config.getTopbarSizePct() / 100
 end
 
-function M.SIDE_M()        return require("ui").SIDE_M()        end  -- delegação para ui.lua
+function M.SIDE_M()        return require("sui_core").SIDE_M()        end  -- delegação para ui.lua
 function M.TOPBAR_SIDE_M() return _cached("topbar_side_m", function() return M.SIDE_M() - 3 end) end
 
 function M.TOPBAR_H()
@@ -114,8 +114,15 @@ local _topbar_disk_time = 0
 local _topbar_ram_mb    = nil
 local _topbar_ram_time  = 0
 
+-- Cached result of "navbar_topbar_enabled" setting.
+-- This setting is read on every timer tick (shouldRunTimer) and on every
+-- touch-zone registration. Caching it avoids repeated settings lookups on
+-- the hot path. Invalidated by invalidateDimCache() on any settings change.
+local _topbar_enabled_cache = nil
+
 function M.invalidateDimCache()
     _dim = {}
+    _topbar_enabled_cache = nil  -- settings may have changed
     _topbar_cfg_cache = nil  -- P5: settings may have changed, force re-read
     -- Also reset slow-data caches so they are refreshed on the next tick.
     _topbar_ram_mb    = nil
@@ -170,20 +177,18 @@ function M.getTopbarInfo()
     local info = { time = datetime.secondsToHour(os.time(), G_reader_settings:isTrue("twelve_hour_clock")) }
 
     if hwHasBattery() then
-        local ok_p, powerd = pcall(function() return Device:getPowerDevice() end)
-        if ok_p and powerd then
-            local ok_c, cap = pcall(function() return powerd:getCapacity() end)
-            if ok_c and type(cap) == "number" then
-                info.battery  = cap
-                local ok_chg, chg = pcall(function() return powerd:isCharging() end)
-                local ok_chd, chd = pcall(function() return powerd:isCharged() end)
-                info.charging     = ok_chg and chg or false
-                local ok_s, sym   = pcall(function()
-                    return powerd:getBatterySymbol(ok_chd and chd, info.charging, cap)
-                end)
-                info.battery_sym = ok_s and sym or ""
-            end
-        end
+        -- getPowerDevice() and its methods are stable KOReader APIs; wrap the
+        -- entire section in a single pcall rather than one per method call.
+        pcall(function()
+            local powerd = Device:getPowerDevice()
+            if not powerd then return end
+            local cap = powerd:getCapacity()
+            if type(cap) ~= "number" then return end
+            info.battery     = cap
+            info.charging    = powerd:isCharging() == true
+            local chd        = powerd:isCharged()
+            info.battery_sym = powerd:getBatterySymbol(chd, info.charging, cap) or ""
+        end)
     end
 
     if hwHasWifi() then
@@ -210,20 +215,21 @@ function M.getTopbarInfo()
         info.bluetooth = false
     end
 
-    local ok_br, br = pcall(function()
+    -- Brightness: single pcall wrapping the two-step lookup.
+    pcall(function()
         local pd = Device:getPowerDevice()
-        return pd and pd:frontlightIntensity()
-    end)
-    if ok_br and type(br) == "number" then
-        info.brightness = br
-    else
-        local ok_sc, sc_br = pcall(function() return Screen:getBrightness() end)
-        if ok_sc and type(sc_br) == "number" then
-            info.brightness = sc_br > 1
-                and math.floor(sc_br / 255 * 100 + 0.5)
-                or  math.floor(sc_br * 100 + 0.5)
+        local br = pd and pd:frontlightIntensity()
+        if type(br) == "number" then
+            info.brightness = br
+        else
+            local sc_br = Screen:getBrightness()
+            if type(sc_br) == "number" then
+                info.brightness = sc_br > 1
+                    and math.floor(sc_br / 255 * 100 + 0.5)
+                    or  math.floor(sc_br * 100 + 0.5)
+            end
         end
-    end
+    end)
 
     pcall(function()
         local now = os.time()
@@ -394,7 +400,10 @@ function M.registerTouchZones(plugin, fm_self)
         })
     end
 
-    if not G_reader_settings:nilOrTrue("navbar_topbar_enabled") then return end
+    if _topbar_enabled_cache == nil then
+        _topbar_enabled_cache = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
+    end
+    if not _topbar_enabled_cache then return end
 
     local screen_h    = Screen:getHeight()
     local topbar_h    = M.TOTAL_TOP_H()
@@ -413,8 +422,8 @@ function M.registerTouchZones(plugin, fm_self)
             screen_zone = topbar_zone,
             handler = function(_ges)
                 if not plugin._makeTopbarMenu then plugin:addToMainMenu({}) end
-                local UI_mod    = require("ui")
-                local Bottombar = require("bottombar")
+                local UI_mod    = require("sui_core")
+                local Bottombar = require("sui_bottombar")
                 -- Delegates to the shared implementation in ui.lua (#4).
                 UI_mod.showSettingsMenu(_("Top Bar"), plugin._makeTopbarMenu,
                     M.TOTAL_TOP_H(), screen_h, Bottombar.TOTAL_H())
@@ -429,7 +438,10 @@ end
 -- ---------------------------------------------------------------------------
 
 local function shouldRunTimer()
-    if not G_reader_settings:nilOrTrue("navbar_topbar_enabled") then return false end
+    if _topbar_enabled_cache == nil then
+        _topbar_enabled_cache = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
+    end
+    if not _topbar_enabled_cache then return false end
     local cfg = getTopbarConfigCached()   -- usa a cache em vez de reconstruir a tabela (#5)
     if (cfg.side["clock"] or "hidden") == "hidden" then return false end
     -- Use package.loaded to avoid any pcall overhead; ReaderUI is only present
@@ -451,7 +463,7 @@ end
 
 function M.refresh(plugin)
     if not shouldRunTimer() then return end
-    local UI    = require("ui")
+    local UI    = require("sui_core")
     local stack = UI.getWindowStack()  -- read once
     -- Each widget gets its own topbar instance. Sharing a single object across
     -- multiple _navbar_containers is unsafe: replaceTopbar mutates overlap_offset

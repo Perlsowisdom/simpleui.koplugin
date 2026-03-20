@@ -644,3 +644,272 @@ msgstr "Lista"
 
 msgid "Cover for \"%s\""
 msgstr "Capa de \"%s\""
+
+msgid "    Size"
+msgstr "    Tamanho"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "Bookmark browser"
+msgstr "Leitor de Marcadores"
+
+msgid "Bookmark browser not available."
+msgstr "Leitor de marcadores não disponível."
+
+msgid "Bookmarks"
+msgstr "Marcadores"
+
+msgid "Bottom"
+msgstr "Inferior"
+
+msgid "Bottom Bar Size"
+msgstr "Tamanho da Barra Inferior"
+
+msgid "Change Icons"
+msgstr "Alterar Ícones"
+
+msgid "Cover size"
+msgstr "Tamanho da capa"
+
+msgid "Cover size  —  %d%%"
+msgstr "Tamanho da capa  —  %d%%"
+
+msgid "Fetching bookmarks…"
+msgstr "A carregar marcadores…"
+
+msgid "Global scale for all modules.\nIndividual overrides in Module Settings take precedence.\n100% is the default size."
+msgstr "Escala global para todos os módulos.\nAs substituições individuais em Definições do Módulo têm prioridade.\n100% é o tamanho predefinido."
+
+msgid "Height of the bottom navigation bar.\n100% is the default size."
+msgstr "Altura da barra de navegação inferior.\n100% é o tamanho predefinido."
+
+msgid "Height of the top status bar.\n100% is the default size."
+msgstr "Altura da barra de estado superior.\n100% é o tamanho predefinido."
+
+msgid "Hidden"
+msgstr "Oculto"
+
+msgid "Home folder"
+msgstr "Pasta raiz"
+
+msgid "Home folder + subfolders"
+msgstr "Pasta raiz + subpastas"
+
+msgid "Label Scale"
+msgstr "Escala das Etiquetas"
+
+msgid "Labels  —  %d%%"
+msgstr "Etiquetas  —  %d%%"
+
+msgid "Minimum 1 tab required in navpager mode."
+msgstr "Mínimo de 1 separador necessário no modo de navegação por páginas."
+
+msgid "Module Scale"
+msgstr "Escala do Módulo"
+
+msgid "Modules  —  %d%%"
+msgstr "Módulos  —  %d%%"
+
+msgid "Navigation Bar"
+msgstr "Barra de Navegação"
+
+msgid "Navpager"
+msgstr "Navegador de Páginas"
+
+msgid "Navpager will be %s after restart.\n\nRestart now?"
+msgstr "O navegador de páginas ficará %s após reiniciar.\n\nReiniciar agora?"
+
+msgid "New name…"
+msgstr "Novo nome…"
+
+msgid "Next"
+msgstr "Seguinte"
+
+msgid "No highlights found. Open a book and highlight some passages."
+msgstr "Nenhum destaque encontrado. Abra um livro e realce algumas passagens."
+
+msgid "Page %1 of %2"
+msgstr "Página %1 de %2"
+
+msgid "Page number in title bar"
+msgstr "Número de página na barra de título"
+
+msgid "Prev"
+msgstr "Anterior"
+
+msgid "Rename"
+msgstr "Renomear"
+
+msgid "Replaces the pagination bar with Prev/Next arrows at the edges of the bottom bar.\nThe arrows dim when there is no previous or next page.\nWith navpager active, as few as 1 tab and at most 4 tabs can be configured."
+msgstr "Substitui a barra de paginação por setas Anterior/Seguinte nas extremidades da barra inferior.\nAs setas ficam esmaecidas quando não há página anterior ou seguinte.\nCom o navegador de páginas ativo, pode configurar entre 1 e 4 separadores."
+
+msgid "Reset"
+msgstr "Repor"
+
+msgid "Reset all scales to default (100%)? This cannot be undone."
+msgstr "Repor todas as escalas para o predefinido (100%)? Esta ação não pode ser desfeita."
+
+msgid "Reset to Default Scale"
+msgstr "Repor Escala Predefinida"
+
+msgid "Scale"
+msgstr "Escala"
+
+msgid "Scale  —  %d%%"
+msgstr "Escala  —  %d%%"
+
+msgid "Scale  —  %d%% / %d%%"
+msgstr "Escala  —  %d%% / %d%%"
+
+
+msgid "Scale for the collection thumbnails only.\nThe label text follows the module scale.\n100% is the default size."
+msgstr "Escala apenas para as miniaturas das coleções.\nO texto da etiqueta segue a escala do módulo.\n100% é o tamanho predefinido."
+
+msgid "Scales all modules and labels together.\n100% is the default size."
+msgstr "Escala todos os módulos e etiquetas em conjunto.\n100% é o tamanho predefinido."
+
+msgid "Scales the section label text above each module.\n100% is the default size."
+msgstr "Escala o texto da etiqueta de secção acima de cada módulo.\n100% é o tamanho predefinido."
+
+msgid "Simple UI was updated (%s → %s).\n\nA restart is recommended to apply all changes cleanly."
+msgstr "O Simple UI foi atualizado (%s → %s).\n\nRecomenda-se reiniciar para aplicar todas as alterações corretamente."
+
+msgid "Size  —  %d%%"
+msgstr "Tamanho  —  %d%%"
+
+msgid "Status Bar"
+msgstr "Barra de Estado"
+
+msgid "Top"
+msgstr "Superior"
+
+msgid "Top Bar Size"
+msgstr "Tamanho da Barra Superior"
+
+msgid "Top separator"
+msgstr "Separador superior"
+
+msgid "Visible"
+msgstr "Visível"
+
+msgid "Your highlights"
+msgstr "Os seus destaques"
+
+msgid "Disable \"Linked Scale\" first to set a per-module scale."
+msgstr "Desative \"Escala Ligada\" primeiro para definir uma escala por módulo."
+
+
+msgid "Lock Scale"
+msgstr "Escala Bloqueada"
+
+msgid "Disable \"Lock Scale\" first to set a per-module scale."
+msgstr "Desative \"Escala Bloqueada\" primeiro para definir uma escala por módulo."
+
+msgid "Disable \"Lock Scale\" first to set a custom label scale."
+msgstr "Desative \"Escala Bloqueada\" primeiro para definir uma escala de etiqueta personalizada."
+
+msgid "Text Size"
+msgstr "Tamanho do Texto"
+
+msgid "Modules"
+msgstr "Módulos"
+
+msgid "Labels"
+msgstr "Etiquetas"
+
+msgid "Scale for this module.\n100% is the default size."
+msgstr "Escala para este módulo.\n100% é o tamanho predefinido."
+
+msgid "Scale for the collection name text.\n100% is the default size."
+msgstr "Escala para o texto do nome da coleção.\n100% é o tamanho predefinido."
+
+msgid "Scale for the cover thumbnail only.\n100% is the default size."
+msgstr "Escala apenas para a miniatura da capa.\n100% é o tamanho predefinido."
+
+msgid "Scale for all text elements (title, author, progress, time).\n100% is the default size."
+msgstr "Escala para todos os elementos de texto (título, autor, progresso, tempo).\n100% é o tamanho predefinido."
+
+msgid "Scale for the button label text.\n100% is the default size."
+msgstr "Escala para o texto da etiqueta do botão.\n100% é o tamanho predefinido."
+
+msgid "Scale for the cover thumbnails only.\nText and progress bar follow the module scale.\n100% is the default size."
+msgstr "Escala apenas para as miniaturas das capas.\nO texto e a barra de progresso seguem a escala do módulo.\n100% é o tamanho predefinido."
+
+msgid "Scale for the percentage read text.\n100% is the default size."
+msgstr "Escala para o texto de percentagem lida.\n100% é o tamanho predefinido."
+
+msgid "Source"
+msgstr "Fonte"
+
+msgid "Default Quotes"
+msgstr "Citações Predefinidas"
+
+msgid "My Highlights"
+msgstr "Os Meus Destaques"
+
+msgid "Quotes + My Highlights"
+msgstr "Citações + Os Meus Destaques"
+
+msgid "default"
+msgstr "predefinido"
+
+msgid "Shows \"Page X of Y\" in the title bar subtitle when browsing the library, history or collections.\nNavpager enables this automatically.\nNot available when Navpager is active."
+msgstr "Mostra \"Página X de Y\" no subtítulo da barra de título ao navegar pela biblioteca, histórico ou coleções.\nO Navegador de Páginas ativa isto automaticamente.\nNão disponível quando o Navegador de Páginas está ativo."
+
+msgid "Icon Size"
+msgstr "Tamanho do Ícone"
+
+msgid "Icon Size — %d%%"
+msgstr "Tamanho do Ícone  —  %d%%"
+
+msgid "Label Size"
+msgstr "Tamanho da Etiqueta"
+
+msgid "Label Size — %d%%"
+msgstr "Tamanho da Etiqueta  —  %d%%"
+
+msgid "Size of the tab icons.\n100% is the default size."
+msgstr "Tamanho dos ícones dos separadores.\n100% é o tamanho predefinido."
+
+msgid "Size of the tab label text.\n100% is the default size."
+msgstr "Tamanho do texto das etiquetas dos separadores.\n100% é o tamanho predefinido."
+
+msgid "Folder Covers"
+msgstr "Capas de Pastas"
+
+msgid "Folder cover"
+msgstr "Capa de pasta"
+
+msgid "Set folder cover…"
+msgstr "Definir capa da pasta…"
+
+msgid "No books found in this folder."
+msgstr "Nenhum livro encontrado nesta pasta."
+
+msgid "Badge"
+msgstr "Distintivo"
+
+msgid "Center"
+msgstr "Centro"
+
+msgid "Label"
+msgstr "Etiqueta"
+
+msgid "Show label"
+msgstr "Mostrar etiqueta"
+
+msgid "Transparent"
+msgstr "Transparente"
+
+msgid "Hide selection underline"
+msgstr "Ocultar sublinhado de seleção"
+
+msgid "Author"
+msgstr "Autor"
+
+msgid "Progress bar"
+msgstr "Barra de progresso"
+
+msgid "Percentage read"
+msgstr "Percentagem lida"

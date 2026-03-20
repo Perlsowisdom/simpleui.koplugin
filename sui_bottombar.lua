@@ -20,13 +20,21 @@ local Screen          = Device.screen
 local logger          = require("logger")
 local _               = require("gettext")
 
-local Config = require("config")
+local Config = require("sui_config")
 
 local M = {}
 
 -- Bar colors.
 M.COLOR_INACTIVE_TEXT = Blitbuffer.gray(0.55)
 M.COLOR_SEPARATOR     = Blitbuffer.gray(0.7)
+
+-- Returns the separator colour: transparent when the user has hidden it.
+local function _sepColor()
+    if G_reader_settings:isTrue("navbar_hide_separator") then
+        return Blitbuffer.COLOR_WHITE
+    end
+    return M.COLOR_SEPARATOR
+end
 
 -- ---------------------------------------------------------------------------
 -- Dimension cache — computed once, invalidated on screen resize or size change.
@@ -35,12 +43,10 @@ M.COLOR_SEPARATOR     = Blitbuffer.gray(0.7)
 local _dim = {}
 
 -- Reads the current navbar size setting and returns a scale factor.
--- "compact" shrinks the bar to ~78% — more content space, still tappable.
--- "default" is 1.0 (unchanged).
+-- Now uses a numeric percentage (Config.getBarSizePct()) instead of named keys.
+-- Legacy string key "navbar_bar_size" is ignored.
 local function _getNavbarScale()
-    local key = G_reader_settings:readSetting("navbar_bar_size") or "default"
-    if key == "compact" then return 0.78 end
-    return 1.0
+    return Config.getBarSizePct() / 100
 end
 
 function M.invalidateDimCache()
@@ -59,10 +65,10 @@ end
 -- BOT_SP, TOP_SP, SEP_H and SIDE_M are structural/device-safe-area values —
 -- they do not scale with the bar size.
 function M.BAR_H()       return _cached("bar_h",   function() return math.floor(Screen:scaleBySize(96) * _getNavbarScale()) end) end
-function M.ICON_SZ()     return _cached("icon_sz", function() return math.floor(Screen:scaleBySize(44) * _getNavbarScale()) end) end
+function M.ICON_SZ()     return _cached("icon_sz", function() return math.floor(Screen:scaleBySize(44) * _getNavbarScale() * (Config.getIconScalePct()  / 100)) end) end
 function M.ICON_TOP_SP() return _cached("it_sp",   function() return math.floor(Screen:scaleBySize(10) * _getNavbarScale()) end) end
 function M.ICON_TXT_SP() return _cached("itxt_sp", function() return math.floor(Screen:scaleBySize(4)  * _getNavbarScale()) end) end
-function M.LABEL_FS()    return _cached("lbl_fs",  function() return math.floor(Screen:scaleBySize(9)  * _getNavbarScale()) end) end
+function M.LABEL_FS()    return _cached("lbl_fs",  function() return math.floor(Screen:scaleBySize(9)  * _getNavbarScale() * (Config.getLabelScalePct() / 100)) end) end
 function M.INDIC_H()     return _cached("indic_h", function() return math.floor(Screen:scaleBySize(3)  * _getNavbarScale()) end) end
 
 -- Structural dimensions — not affected by the size setting.
@@ -148,7 +154,7 @@ function M.buildTabCell(action_id, active, tab_w, mode)
 
     vg[#vg + 1] = LineWidget:new{
         dimen      = Geom:new{ w = tab_w, h = M.SEP_H() },
-        background = M.COLOR_SEPARATOR,
+        background = _sepColor(),
     }
     vg[#vg + 1] = LineWidget:new{
         dimen      = Geom:new{ w = tab_w, h = M.INDIC_H() },
@@ -185,16 +191,140 @@ function M.buildTabCell(action_id, active, tab_w, mode)
     }
 end
 
+-- Builds a navpager arrow cell (Prev or Next).
+-- `enabled`  — false → dimmed (no prev/next page exists).
+-- `is_prev`  — true → left arrow, false → right arrow.
+local _NAVPAGER_COLOR_ACTIVE  = Blitbuffer.COLOR_BLACK
+local _NAVPAGER_COLOR_DIMMED  = nil  -- initialised lazily (grey(0.75))
+
+local function _navpagerColor()
+    if not _NAVPAGER_COLOR_DIMMED then
+        _NAVPAGER_COLOR_DIMMED = Blitbuffer.gray(0.75)
+    end
+    return _NAVPAGER_COLOR_DIMMED
+end
+
+function M.buildNavpagerArrowCell(is_prev, enabled, tab_w, mode)
+    local icon_file = is_prev and Config.ICON.nav_prev or Config.ICON.nav_next
+    local label     = is_prev and _("Prev") or _("Next")
+    local color     = enabled and _NAVPAGER_COLOR_ACTIVE or _navpagerColor()
+
+    local vg = VerticalGroup:new{ align = "center" }
+
+    -- Top separator line (same visual rhythm as regular tabs).
+    vg[#vg + 1] = LineWidget:new{
+        dimen      = Geom:new{ w = tab_w, h = M.SEP_H() },
+        background = _sepColor(),
+    }
+    -- No active indicator line for arrow buttons (always transparent).
+    vg[#vg + 1] = LineWidget:new{
+        dimen      = Geom:new{ w = tab_w, h = M.INDIC_H() },
+        background = Blitbuffer.COLOR_WHITE,
+    }
+    if not _vspan_icon_top then _vspan_icon_top = VerticalSpan:new{ width = M.ICON_TOP_SP() } end
+    vg[#vg + 1] = _vspan_icon_top
+
+    -- References to mutable widgets stored on the CenterContainer so
+    -- updateNavpagerArrows can mutate them in-place without tree traversal.
+    local iw, tw
+
+    if mode == "icons" or mode == "both" then
+        -- dim is read at paintTo time — set directly, no paintTo override needed.
+        iw = ImageWidget:new{
+            file    = icon_file,
+            width   = M.ICON_SZ(),
+            height  = M.ICON_SZ(),
+            is_icon = true,
+            alpha   = true,
+            dim     = not enabled or nil,
+        }
+        vg[#vg + 1] = iw
+    end
+
+    if mode == "text" or mode == "both" then
+        if mode == "both" then
+            if not _vspan_icon_txt then _vspan_icon_txt = VerticalSpan:new{ width = M.ICON_TXT_SP() } end
+            vg[#vg + 1] = _vspan_icon_txt
+        end
+        tw = TextWidget:new{
+            text    = label,
+            face    = Font:getFace("cfont", M.LABEL_FS()),
+            fgcolor = color,
+        }
+        vg[#vg + 1] = tw
+    end
+
+    local cc = CenterContainer:new{
+        dimen = Geom:new{ w = tab_w, h = M.BAR_H() },
+        vg,
+    }
+    -- Annotate with mutable-widget handles and current enabled state.
+    -- updateNavpagerArrows reads these directly — O(1), no tree traversal.
+    cc._arrow_image   = iw
+    cc._arrow_text    = tw
+    cc._arrow_enabled = enabled
+    return cc
+end
+
+-- Updates the Prev/Next arrow cells of an existing navpager bar in-place.
+-- Mutates only ImageWidget.dim and TextWidget.fgcolor on the two arrow cells
+-- rather than rebuilding the entire bar (~37 widget allocations per rebuild).
+-- Returns true when the update was applied, false when the bar structure is
+-- missing or unrecognised (caller must fall back to a full replaceBar).
+function M.updateNavpagerArrows(widget, has_prev, has_next)
+    local bar = widget._navbar_bar
+    if not bar then return false end
+
+    -- Arrows are always visible when navpager is enabled.
+    if not bar._navpager_has_arrows then return false end
+
+    local hg = bar[1]   -- HorizontalGroup inside the FrameContainer
+    if not hg then return false end
+    local prev_cc = hg[1]     -- slot 1 = Prev arrow CenterContainer
+    local next_cc = hg[#hg]   -- last slot = Next arrow CenterContainer
+    -- Verify these are annotated arrow cells (built by buildNavpagerArrowCell).
+    if not (prev_cc and prev_cc._arrow_enabled ~= nil
+        and next_cc and next_cc._arrow_enabled ~= nil) then
+        return false
+    end
+    -- Skip all work when the visible state has not changed.
+    if prev_cc._arrow_enabled == has_prev and next_cc._arrow_enabled == has_next then
+        return true
+    end
+    local dimmed = _navpagerColor()
+    local function _apply(cc, enabled)
+        if cc._arrow_enabled == enabled then return end
+        cc._arrow_enabled = enabled
+        if cc._arrow_image then
+            cc._arrow_image.dim = not enabled or nil
+        end
+        if cc._arrow_text then
+            cc._arrow_text.fgcolor = enabled and _NAVPAGER_COLOR_ACTIVE or dimmed
+        end
+    end
+    _apply(prev_cc, has_prev)
+    _apply(next_cc, has_next)
+    return true
+end
+
 -- Assembles the full bottom bar FrameContainer from all tab cells.
+-- In navpager mode, calls getNavpagerState() internally.
 function M.buildBarWidget(active_action_id, tab_config, num_tabs, mode)
     num_tabs    = num_tabs or Config.getNumTabs()
     mode        = mode     or Config.getNavbarMode()
     local screen_w = Screen:getWidth()
     local side_m   = M.SIDE_M()
     local usable_w = screen_w - side_m * 2
-    local widths   = M.getTabWidths(num_tabs, usable_w)
     local hg_args  = { align = "top" }
 
+    if Config.isNavpagerEnabled() then
+        local has_prev, has_next = Config.getNavpagerState()
+        return M.buildBarWidgetWithArrows(
+            active_action_id, tab_config, mode,
+            has_prev, has_next)
+    end
+
+    local widths = M.getTabWidths(num_tabs, usable_w)
     for i = 1, num_tabs do
         local action_id = tab_config[i]
         hg_args[#hg_args + 1] = M.buildTabCell(action_id, action_id == active_action_id, widths[i], mode)
@@ -209,6 +339,54 @@ function M.buildBarWidget(active_action_id, tab_config, num_tabs, mode)
         background    = Blitbuffer.COLOR_WHITE,
         HorizontalGroup:new(hg_args),
     }
+end
+
+-- Navpager-mode bar with explicit has_prev / has_next flags.
+-- Called both from buildBarWidget (which resolves flags via getNavpagerState)
+-- and from the updatePageInfo hook (which passes pre-snapshotted values).
+local HorizontalSpan = require("ui/widget/horizontalspan")
+
+function M.buildBarWidgetWithArrows(active_action_id, tab_config, mode, has_prev, has_next)
+    mode = mode or Config.getNavbarMode()
+    local screen_w  = Screen:getWidth()
+    local side_m    = M.SIDE_M()
+    local usable_w  = screen_w - side_m * 2
+    local center_n  = #tab_config
+    local hg_args   = { align = "top" }
+
+    -- Arrows are always shown when navpager is enabled.
+    local total_n = center_n + 2
+    local widths  = M.getTabWidths(total_n, usable_w)
+
+    -- Prev arrow
+    hg_args[#hg_args + 1] = M.buildNavpagerArrowCell(true, has_prev, widths[1], mode)
+
+    -- Centre tabs
+    for i = 1, center_n do
+        local action_id = tab_config[i]
+        local w = widths[i + 1]
+        if action_id then
+            hg_args[#hg_args + 1] = M.buildTabCell(action_id, action_id == active_action_id, w, mode)
+        else
+            hg_args[#hg_args + 1] = HorizontalSpan:new{ width = w }
+        end
+    end
+
+    -- Next arrow
+    hg_args[#hg_args + 1] = M.buildNavpagerArrowCell(false, has_next, widths[total_n], mode)
+
+    -- Tag so updateNavpagerArrows knows whether this bar has arrows.
+    local fc = FrameContainer:new{
+        bordersize    = 0,
+        padding       = 0,
+        padding_left  = side_m,
+        padding_right = side_m,
+        margin        = 0,
+        background    = Blitbuffer.COLOR_WHITE,
+        HorizontalGroup:new(hg_args),
+    }
+    fc._navpager_has_arrows = true
+    return fc
 end
 
 -- Swaps the bar widget inside an already-wrapped widget, preserving overlap_offset.
@@ -243,83 +421,194 @@ end
 -- ---------------------------------------------------------------------------
 
 function M.registerTouchZones(plugin, fm_self)
-    local num_tabs = Config.getNumTabs()
-    local screen_w = Screen:getWidth()
-    local screen_h = Screen:getHeight()
+    local num_tabs  = Config.getNumTabs()
+    local screen_w  = Screen:getWidth()
+    local screen_h  = Screen:getHeight()
     local navbar_on = G_reader_settings:nilOrTrue("navbar_enabled")
-    local bar_h    = navbar_on and M.BAR_H() or 0
-    local side_m   = M.SIDE_M()
-    local usable_w = screen_w - side_m * 2
-    local bar_y    = navbar_on and (screen_h - bar_h - M.BOT_SP()) or screen_h
-    local widths   = M.getTabWidths(num_tabs, usable_w)
+    local bar_h     = navbar_on and M.BAR_H() or 0
+    local side_m    = M.SIDE_M()
+    local usable_w  = screen_w - side_m * 2
+    local bar_y     = navbar_on and (screen_h - bar_h - M.BOT_SP()) or screen_h
+    local navpager  = Config.isNavpagerEnabled()
 
-    -- Unregister stale zones from any previous registration.
+    local center_n    = num_tabs
+    local arrows_active = navpager
+    local total_slots = arrows_active and (num_tabs + 2) or num_tabs
+    local widths      = M.getTabWidths(total_slots, usable_w)
+
+    logger.dbg("simpleui tz: registerTouchZones on=", tostring(fm_self and fm_self.name),
+        "navpager=", tostring(navpager),
+        "num_tabs=", tostring(num_tabs))
+
+    -- Unregister all possible zone ids from any previous registration.
     if fm_self.unregisterTouchZones then
         local old_zones = {}
         for i = 1, Config.MAX_TABS do
             old_zones[#old_zones + 1] = { id = "navbar_pos_" .. i }
         end
-        for _i, id in ipairs({
-            "navbar_hold_start", "navbar_hold_settings",
-        }) do
+        for _, id in ipairs({ "navbar_pos_prev", "navbar_pos_next",
+                               "navbar_hold_start", "navbar_hold_settings" }) do
             old_zones[#old_zones + 1] = { id = id }
         end
         fm_self:unregisterTouchZones(old_zones)
     end
 
-    local zones             = {}
-    local cumulative_offset = 0
+    local zones = {}
+    local _OVERRIDES = {
+        "tap_left_bottom_corner", "tap_right_bottom_corner",
+        "TapBook", "TapColl", "TapQA", "TapGoal", "TapSelect", "TapStatCard",
+    }
 
-    -- One tap zone per tab; inactive slots are moved off-screen.
-    for i = 1, Config.MAX_TABS do
-        local pos    = i
-        local active = (i <= num_tabs)
-        local x_start, this_tab_w
-        if active then
-            x_start           = side_m + cumulative_offset
-            this_tab_w        = widths[i]
-            cumulative_offset = cumulative_offset + widths[i]
-        else
-            x_start    = screen_w + 1
-            this_tab_w = 1
+    -- Helper: find and call a page-navigation method on the topmost pageable widget.
+    local UI_mod = require("sui_core")
+    local function _callPageFn(fn_name)
+        local stack  = UI_mod.getWindowStack()
+        for i = #stack, 1, -1 do
+            local w = stack[i] and stack[i].widget
+            if w then
+                if type(w[fn_name]) == "function" and type(w.page_num) == "number" then
+                    pcall(function() w[fn_name](w) end); return
+                end
+                local fc = w.file_chooser
+                if fc and type(fc[fn_name]) == "function" and type(fc.page_num) == "number" then
+                    pcall(function() fc[fn_name](fc) end); return
+                end
+            end
         end
+        -- Fallback: FM file_chooser (not always on stack).
+        local fm_mod = package.loaded["apps/filemanager/filemanager"]
+        local fm_inst = fm_mod and fm_mod.instance
+        if fm_inst and fm_inst.file_chooser then
+            pcall(function() fm_inst.file_chooser[fn_name](fm_inst.file_chooser) end)
+        end
+    end
+
+    if arrows_active then
+        -- ── Prev arrow (slot 1) ──────────────────────────────────────────────
         zones[#zones + 1] = {
-            id          = "navbar_pos_" .. i,
+            id          = "navbar_pos_prev",
             ges         = "tap",
-            -- Explicitly override every tappable ges_event used by homescreen
-            -- modules so the DepGraph always places navbar zones first.
-            -- Without this, the ordering is non-deterministic and taps on the
-            -- navbar can fire module callbacks (open book, open collection, etc.)
-            -- instead of the intended tab action. See: reported issue "bottom
-            -- menu opens books rather than doing menu-y things".
-            overrides   = {
-                "tap_left_bottom_corner",   -- Gestures plugin: frontlight toggle
-                "tap_right_bottom_corner",  -- Gestures plugin: right corner action
-                "TapBook",    -- module_currently, module_recent
-                "TapColl",    -- module_collections
-                "TapQA",      -- module_quick_actions
-                "TapGoal",    -- module_reading_goals
-                "TapSelect",  -- Menu/FileChooser items (safety net for all pages)
-            },
+            overrides   = _OVERRIDES,
             screen_zone = {
-                ratio_x = x_start    / screen_w,
-                ratio_y = bar_y      / screen_h,
-                ratio_w = this_tab_w / screen_w,
-                ratio_h = bar_h      / screen_h,
+                ratio_x = side_m    / screen_w,
+                ratio_y = bar_y     / screen_h,
+                ratio_w = widths[1] / screen_w,
+                ratio_h = bar_h     / screen_h,
             },
             handler = function(_ges)
-                if not active then return false end
-                if pos > Config.getNumTabs() then return false end
-                local t         = Config.loadTabConfig()
-                local action_id = t[pos]
-                if not action_id then return true end
-                plugin:_onTabTap(action_id, fm_self)
+                local has_prev, _ = Config.getNavpagerState()
+                logger.dbg("simpleui tz: navbar_pos_prev fired has_prev=", tostring(has_prev))
+                if has_prev then _callPageFn("onPrevPage") end
                 return true
             end,
         }
+
+        -- ── Centre tab slots (slots 2 … center_n+1) ─────────────────────────
+        local cumulative = widths[1]
+        for i = 1, center_n do
+            local pos        = i
+            local x_start    = side_m + cumulative
+            local this_tab_w = widths[i + 1]
+            cumulative       = cumulative + this_tab_w
+            zones[#zones + 1] = {
+                id          = "navbar_pos_" .. i,
+                ges         = "tap",
+                overrides   = _OVERRIDES,
+                screen_zone = {
+                    ratio_x = x_start    / screen_w,
+                    ratio_y = bar_y      / screen_h,
+                    ratio_w = this_tab_w / screen_w,
+                    ratio_h = bar_h      / screen_h,
+                },
+                handler = function(_ges)
+                    local t         = Config.loadTabConfig()
+                    local action_id = t[pos]
+                    logger.dbg("simpleui tz: navbar_pos_", pos, "fired action=", tostring(action_id))
+                    if not action_id then return true end
+                    plugin:_onTabTap(action_id, fm_self)
+                    return true
+                end,
+            }
+        end
+
+        -- Pad any unused MAX_TABS slots off-screen (cleanup from standard mode).
+        for i = center_n + 1, Config.MAX_TABS do
+            zones[#zones + 1] = {
+                id          = "navbar_pos_" .. i,
+                ges         = "tap",
+                screen_zone = { ratio_x = 2, ratio_y = 0, ratio_w = 0.01, ratio_h = 0.01 },
+                handler     = function() return false end,
+            }
+        end
+
+        -- ── Next arrow (last slot) ───────────────────────────────────────────
+        local next_x = side_m + usable_w - widths[total_slots]
+        zones[#zones + 1] = {
+            id          = "navbar_pos_next",
+            ges         = "tap",
+            overrides   = _OVERRIDES,
+            screen_zone = {
+                ratio_x = next_x              / screen_w,
+                ratio_y = bar_y               / screen_h,
+                ratio_w = widths[total_slots] / screen_w,
+                ratio_h = bar_h               / screen_h,
+            },
+            handler = function(_ges)
+                local _, has_next = Config.getNavpagerState()
+                if has_next then _callPageFn("onNextPage") end
+                return true
+            end,
+        }
+
+    else
+        -- ── Standard mode (original behaviour) ──────────────────────────────
+        local cumulative_offset = 0
+        for i = 1, Config.MAX_TABS do
+            local pos    = i
+            local active = (i <= num_tabs)
+            local x_start, this_tab_w
+            if active then
+                x_start           = side_m + cumulative_offset
+                this_tab_w        = widths[i]
+                cumulative_offset = cumulative_offset + widths[i]
+            else
+                x_start    = screen_w + 1
+                this_tab_w = 1
+            end
+            zones[#zones + 1] = {
+                id          = "navbar_pos_" .. i,
+                ges         = "tap",
+                overrides   = _OVERRIDES,
+                screen_zone = {
+                    ratio_x = x_start    / screen_w,
+                    ratio_y = bar_y      / screen_h,
+                    ratio_w = this_tab_w / screen_w,
+                    ratio_h = bar_h      / screen_h,
+                },
+                handler = function(_ges)
+                    if not active then return false end
+                    if pos > Config.getNumTabs() then return false end
+                    local t         = Config.loadTabConfig()
+                    local action_id = t[pos]
+                    if not action_id then return true end
+                    plugin:_onTabTap(action_id, fm_self)
+                    return true
+                end,
+            }
+        end
+
+        -- Navpager slots moved off-screen (cleanup from a previous navpager session).
+        for _, id in ipairs({ "navbar_pos_prev", "navbar_pos_next" }) do
+            zones[#zones + 1] = {
+                id          = id,
+                ges         = "tap",
+                screen_zone = { ratio_x = 2, ratio_y = 0, ratio_w = 0.01, ratio_h = 0.01 },
+                handler     = function() return false end,
+            }
+        end
     end
 
-    -- Hold anywhere on the bar to open the settings menu.
+    -- Hold anywhere on the bar → open settings menu.
     local bar_screen_zone = {
         ratio_x = 0,
         ratio_y = bar_y / screen_h,
@@ -329,7 +618,8 @@ function M.registerTouchZones(plugin, fm_self)
     zones[#zones + 1] = {
         id          = "navbar_hold_start",
         ges         = "hold",
-        overrides   = { "tap_left_bottom_corner", "tap_right_bottom_corner", "TapBook", "TapColl", "TapQA", "TapGoal", "TapSelect" },
+        overrides   = { "tap_left_bottom_corner", "tap_right_bottom_corner",
+                        "TapBook", "TapColl", "TapQA", "TapGoal", "TapSelect" },
         screen_zone = bar_screen_zone,
         handler     = function(_ges) return true end,
     }
@@ -339,10 +629,9 @@ function M.registerTouchZones(plugin, fm_self)
         screen_zone = bar_screen_zone,
         handler = function(_ges)
             if not plugin._makeNavbarMenu then plugin:addToMainMenu({}) end
-            local UI_mod    = require("ui")
-            local topbar_on = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
-            local top_offset = topbar_on and require("topbar").TOTAL_TOP_H() or 0
-            -- Delegates to the shared implementation in ui.lua (#4).
+            local UI_mod     = require("sui_core")
+            local topbar_on  = G_reader_settings:nilOrTrue("navbar_topbar_enabled")
+            local top_offset = topbar_on and require("sui_topbar").TOTAL_TOP_H() or 0
             UI_mod.showSettingsMenu(_("Bottom Bar"), plugin._makeNavbarMenu,
                 top_offset, screen_h, M.TOTAL_H())
             return true
@@ -350,6 +639,21 @@ function M.registerTouchZones(plugin, fm_self)
     }
 
     fm_self:registerTouchZones(zones)
+
+    -- When fm_self is an injected widget (homescreen, collections…) the zones
+    -- live on that widget and are consulted while it is on top.  But the FM
+    -- underneath also needs the zones so they are active when the FM is the
+    -- topmost fullscreen widget.  When fm_self IS the FM this is a no-op.
+    local fm_mod  = package.loaded["apps/filemanager/filemanager"]
+    local fm_inst = fm_mod and fm_mod.instance
+    if fm_inst and fm_inst ~= fm_self and fm_inst.registerTouchZones then
+        -- Pass a shallow copy so each widget holds an independent reference.
+        -- Both tables point at the same zone-definition sub-tables (handlers,
+        -- screen_zone), which is intentional — only the outer list is copied.
+        local zones_copy = {}
+        for i = 1, #zones do zones_copy[i] = zones[i] end
+        fm_inst:registerTouchZones(zones_copy)
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -359,9 +663,10 @@ end
 function M.onTabTap(plugin, action_id, fm_self)
     -- Action-only tabs: open their dialog/action without changing the active tab.
     -- The indicator stays on whatever tab was active before the tap.
-    if action_id == "power"       then M.showPowerDialog(plugin);  return end
-    if action_id == "wifi_toggle" then M.doWifiToggle(plugin);     return end
-    if action_id == "frontlight"  then M.showFrontlightDialog();   return end
+    if action_id == "power"            then M.showPowerDialog(plugin);                      return end
+    if action_id == "wifi_toggle"      then M.doWifiToggle(plugin);                         return end
+    if action_id == "frontlight"       then M.showFrontlightDialog();                       return end
+    if action_id == "bookmark_browser" then M.showBookmarkBrowserSourceDialog(plugin.ui);   return end
 
     -- Load tabs once — navigate reuses this table instead of reloading.
     local tabs = Config.loadTabConfig()
@@ -375,11 +680,14 @@ function M.onTabTap(plugin, action_id, fm_self)
     -- produces a redundant buildBarWidget call and extra repaint flushes.
     -- Also skip for "homescreen": UIManager.show calls setActiveAndRefreshFM
     -- when the HS widget is shown, covering the bar update at that point.
+    -- Also skip when already_active: the indicator is already correct and
+    -- rebuilding the bar would allocate all widgets for an identical result.
     local hs_open = (function()
-        local HS = package.loaded["homescreen"]
+        local HS = package.loaded["sui_homescreen"]
         return HS and HS._instance ~= nil
     end)()
-    if fm_self._navbar_container and action_id ~= "homescreen" and not hs_open then
+    if fm_self._navbar_container and action_id ~= "homescreen" and not hs_open
+            and not already_active then
         M.replaceBar(fm_self, M.buildBarWidget(action_id, tabs), tabs)
         UIManager:setDirty(fm_self._navbar_container, "ui")
         UIManager:setDirty(fm_self, "ui")
@@ -414,10 +722,11 @@ M.setActiveAndRefreshFM = setActiveAndRefreshFM
 -- Returns false for navigation actions that open a different screen.
 -- ---------------------------------------------------------------------------
 local function _isInPlaceAction(action_id)
-    if action_id == "wifi_toggle" then return true end
-    if action_id == "frontlight"  then return true end
-    if action_id == "power"       then return true end
-    if action_id == "stats_calendar" then return true end
+    if action_id == "wifi_toggle"      then return true end
+    if action_id == "frontlight"       then return true end
+    if action_id == "power"            then return true end
+    if action_id == "stats_calendar"   then return true end
+    if action_id == "bookmark_browser" then return true end
     if action_id:match("^custom_qa_%d+$") then
         local cfg = Config.getCustomQAConfig(action_id)
         -- dispatcher_action and plugin_method are in-place (they toggle state
@@ -430,15 +739,85 @@ local function _isInPlaceAction(action_id)
 end
 
 -- ---------------------------------------------------------------------------
+-- showBookmarkBrowserSourceDialog
+-- Shared helper: shows the source-selection ButtonDialog for the bookmark
+-- browser. Used by both _executeInPlace (HS open, dialog floats on top) and
+-- navigate (HS closed, normal open). Extracted to avoid duplication.
+-- `bb_ui`  — the widget context to pass to BookmarkBrowser:show().
+-- ---------------------------------------------------------------------------
+function M.showBookmarkBrowserSourceDialog(bb_ui)
+    local ok_bb, BookmarkBrowser = pcall(require, "ui/widget/bookmarkbrowser")
+    if not ok_bb then
+        showUnavailable(_("Bookmark browser not available."))
+        return
+    end
+    local home_dir = G_reader_settings:readSetting("home_dir")
+    local source_dialog
+    local function open_with_source(fetch_fn, subfolders)
+        UIManager:close(source_dialog)
+        UIManager:show(require("ui/widget/infomessage"):new{
+            text    = _("Fetching bookmarks\xe2\x80\xa6"),
+            timeout = 0.1,
+        })
+        UIManager:nextTick(function()
+            local books = {}
+            if type(fetch_fn) == "function" then
+                fetch_fn(books)
+            else
+                local util             = require("util")
+                local DocumentRegistry = require("document/documentregistry")
+                util.findFiles(fetch_fn, function(file)
+                    books[file] = DocumentRegistry:hasProvider(file) or nil
+                end, subfolders)
+            end
+            BookmarkBrowser:show(books, bb_ui)
+        end)
+    end
+    local ButtonDialog = require("ui/widget/buttondialog")
+    source_dialog = ButtonDialog:new{
+        title        = _("Bookmark browser"),
+        title_align  = "center",
+        width_factor = 0.8,
+        buttons = {
+            {{ text = _("History"), callback = function()
+                open_with_source(function(books)
+                    for _, v in ipairs(require("readhistory").hist) do
+                        books[v.file] = v.select_enabled or nil
+                    end
+                end)
+            end }},
+            {{ text = _("Collections"), callback = function()
+                open_with_source(function(books)
+                    local rc = require("readcollection")
+                    if rc.coll then
+                        for _, coll in pairs(rc.coll) do
+                            for file in pairs(coll) do books[file] = true end
+                        end
+                    end
+                end)
+            end }},
+            {{ text = _("Home folder"), enabled = home_dir ~= nil,
+               callback = function() open_with_source(home_dir, false) end }},
+            {{ text = _("Home folder + subfolders"), enabled = home_dir ~= nil,
+               callback = function() open_with_source(home_dir, true) end }},
+            {{ text = _("Cancel"), callback = function()
+                UIManager:close(source_dialog)
+            end }},
+        },
+    }
+    UIManager:show(source_dialog)
+end
+
+-- ---------------------------------------------------------------------------
 -- _executeInPlace: runs an in-place action while keeping the HS open.
 -- The HS is temporarily moved to the bottom of the window stack so that
 -- Dispatcher:sendEvent and broadcastEvent reach FM plugins correctly.
 -- After execution the HS is restored to the top and repainted.
 -- ---------------------------------------------------------------------------
 local function _executeInPlace(action_id, plugin, fm)
-    local HS      = package.loaded["homescreen"]
+    local HS      = package.loaded["sui_homescreen"]
     local hs_inst = HS and HS._instance
-    local UI_mod  = require("ui")
+    local UI_mod  = require("sui_core")
     local stack   = UI_mod.getWindowStack()
     local hs_idx  = nil
 
@@ -467,6 +846,16 @@ local function _executeInPlace(action_id, plugin, fm)
             UIManager:broadcastEvent(require("ui/event"):new("ShowCalendarView"))
         end)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
+
+    elseif action_id == "bookmark_browser" then
+        -- Show the source-selection ButtonDialog floating above the homescreen.
+        -- Same pattern as frontlight: non-fullscreen widget, HS stays visible.
+        local _bb_ui = fm
+        local ok_rui, ReaderUI = pcall(require, "apps/reader/readerui")
+        if ok_rui and ReaderUI and ReaderUI.instance then
+            _bb_ui = ReaderUI.instance
+        end
+        M.showBookmarkBrowserSourceDialog(_bb_ui)
 
     elseif action_id:match("^custom_qa_%d+$") then
         local cfg = Config.getCustomQAConfig(action_id)
@@ -511,10 +900,31 @@ end
 function M.navigate(plugin, action_id, fm_self, tabs, force)
     local fm = plugin.ui
 
+    -- When the FM has been torn down and recreated (e.g. after returning from
+    -- the reader), plugin.ui on the *old* plugin instance no longer has
+    -- _navbar_container. Fall back to the live FileManager instance so that
+    -- replaceBar and _goHome operate on the real widget.
+    if not (fm and fm._navbar_container) then
+        local FM2 = package.loaded["apps/filemanager/filemanager"]
+        local live = FM2 and FM2.instance
+        if live and live._navbar_container then
+            fm = live
+            -- Also sync active_action to the live plugin so the indicator is
+            -- updated on the correct plugin instance.
+            local live_plugin = live._simpleui_plugin
+            if live_plugin and live_plugin ~= plugin then
+                live_plugin.active_action = plugin.active_action
+                plugin = live_plugin
+            end
+        end
+    end
+
     -- Detect if the homescreen is currently open (fm_self is the FM but the
     -- HS is on top — the tap came through the HS's injected bottombar).
-    local HS = package.loaded["homescreen"]
+    local HS = package.loaded["sui_homescreen"]
     local hs_open = HS and HS._instance ~= nil
+
+    logger.dbg("simpleui navigate: action=", action_id, "hs_open=", hs_open)
 
     -- In-place actions (toggle nightmode, frontlight, wifi, dispatcher, etc.)
     -- must NOT close the homescreen. Execute them directly and return.
@@ -628,7 +1038,7 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
         if not ok then showUnavailable(_("History not available.")) end
 
     elseif action_id == "homescreen" then
-        local ok_hs, HS = pcall(require, "homescreen")
+        local ok_hs, HS = pcall(require, "sui_homescreen")
         if ok_hs and HS and type(HS.show) == "function" then
             -- QA taps from the homescreen must NOT go through _onTabTap:
             -- _onTabTap calls replaceBar(fm) which schedules a full FM repaint,
@@ -650,6 +1060,16 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
     elseif action_id == "favorites" then
         if fm.collections then fm.collections:onShowColl()
         else showUnavailable(_("Favorites not available.")) end
+
+    elseif action_id == "bookmark_browser" then
+        -- Show the source-selection ButtonDialog floating on top of whatever
+        -- is currently visible. Delegates to the shared helper.
+        local _bb_ui = fm
+        local ok_rui, ReaderUI = pcall(require, "apps/reader/readerui")
+        if ok_rui and ReaderUI and ReaderUI.instance then
+            _bb_ui = ReaderUI.instance
+        end
+        M.showBookmarkBrowserSourceDialog(_bb_ui)
 
     elseif action_id == "continue" then
         local RH = package.loaded["readhistory"] or require("readhistory")
@@ -754,7 +1174,7 @@ function M.doWifiToggle(plugin)
     -- Immediately refresh the bar and topbar with the optimistic Wi-Fi state.
     if plugin then
         plugin:_rebuildAllNavbars()
-        local Topbar = require("topbar")
+        local Topbar = require("sui_topbar")
         local cfg    = Config.getTopbarConfig()
         if (cfg.side["wifi"] or "hidden") ~= "hidden" then
             Topbar.scheduleRefresh(plugin, 0)
@@ -785,8 +1205,8 @@ end
 -- ---------------------------------------------------------------------------
 
 function M.rebuildAllNavbars(plugin)
-    local UI        = require("ui")
-    local Topbar    = require("topbar")
+    local UI        = require("sui_core")
+    local Topbar    = require("sui_topbar")
     M.invalidateDimCache()
     -- Read config once; these values are shared across every widget in the loop.
     local tabs      = Config.loadTabConfig()
@@ -834,7 +1254,7 @@ function M.setPowerTabActive(plugin, active, prev_action)
         UIManager:setDirty(w._navbar_container, "partial")
     end
 
-    local UI    = require("ui")
+    local UI    = require("sui_core")
     local stack = UI.getWindowStack()
     updateWidget(plugin.ui)
     for _i, entry in ipairs(stack) do
@@ -844,7 +1264,7 @@ function M.setPowerTabActive(plugin, active, prev_action)
 end
 
 function M.rewrapAllWidgets(plugin)
-    local UI        = require("ui")
+    local UI        = require("sui_core")
     local tabs      = Config.loadTabConfig()
     local stack     = UI.getWindowStack()  -- read once for the entire operation
     local seen      = {}
@@ -876,7 +1296,7 @@ function M.restoreTabInFM(plugin, tabs, prev_action)
     local fm = plugin.ui
     if not (fm and fm._navbar_container) then return end
     local should_skip = false
-    local UI = require("ui")
+    local UI = require("sui_core")
     pcall(function()
         for _i, entry in ipairs(UI.getWindowStack()) do
             if entry.widget and entry.widget._navbar_injected and entry.widget ~= fm then
@@ -888,7 +1308,7 @@ function M.restoreTabInFM(plugin, tabs, prev_action)
     -- Always load tabs fresh: the `tabs` argument was captured at widget-open time
     -- and may be stale if the user changed tab config while the widget was open.
     local t = Config.loadTabConfig()
-    local Patches = require("patches")
+    local Patches = require("sui_patches")
     local restored = (fm.file_chooser and Patches._resolveTabForPath(fm.file_chooser.path, t))
                   or prev_action or (t[1])
     plugin.active_action = restored
