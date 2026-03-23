@@ -849,7 +849,7 @@ local function _executeInPlace(action_id, plugin, fm)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
 
     elseif action_id == "bookfusion" then
-        local bf = fm and fm.bookfusion
+        local bf = fm and fm.ui and fm.ui.menu and fm.ui.menu_items and fm.ui.menu_items.bookfusion
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
@@ -1106,7 +1106,7 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
 
     elseif action_id == "bookfusion" then
-        local bf = fm and fm.bookfusion
+        local bf = fm and fm.ui and fm.ui.menu and fm.ui.menu_items and fm.ui.menu_items.bookfusion
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
