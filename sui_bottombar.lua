@@ -849,11 +849,13 @@ local function _executeInPlace(action_id, plugin, fm)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
 
     elseif action_id == "bookfusion" then
-        local bf = fm and fm.ui and fm.ui.menu and fm.ui.menu_items and fm.ui.menu_items.bookfusion
+        local ReaderUI = package.loaded["apps/reader/readerui"]
+        local reader = ReaderUI and ReaderUI.instance
+        local bf = reader and reader.menu_items and reader.menu_items.bookfusion
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
-            showUnavailable(_("BookFusion plugin not available."))
+            showUnavailable(_("Open a BookFusion book first or link your device."))
         end
 
     elseif action_id == "bookmark_browser" then
@@ -1106,11 +1108,13 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
 
     elseif action_id == "bookfusion" then
-        local bf = fm and fm.ui and fm.ui.menu and fm.ui.menu_items and fm.ui.menu_items.bookfusion
+        local ReaderUI = package.loaded["apps/reader/readerui"]
+        local reader = ReaderUI and ReaderUI.instance
+        local bf = reader and reader.menu_items and reader.menu_items.bookfusion
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
-            showUnavailable(_("BookFusion plugin not available."))
+            showUnavailable(_("Open a BookFusion book first or link your device."))
         end
 
     elseif action_id == "wifi_toggle" then
