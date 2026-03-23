@@ -308,6 +308,7 @@ local function _scanAllPlugins()
             end
         end
     end
+    return results
 end
 
 
