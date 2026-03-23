@@ -298,14 +298,11 @@ local function _scanAllPlugins()
         { key = "ocr",              method = "onShowOCR",             title = "OCR" },
         { key = "servermode",       method = "onShowServerMode",      title = "Server Mode" },
     }
-    -- Try to require the plugin module directly (for plugins not loaded yet)
+    -- Always include known plugins in the list
     for _, entry in ipairs(known) do
         if not seen[entry.key] then
-            local ok, plugin = pcall(require, "plugins." .. entry.key .. ".koplugin.main")
-            if ok and plugin and type(plugin[entry.method]) == "function" then
-                seen[entry.key] = true
-                results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
-            end
+            results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
+            seen[entry.key] = true
         end
     end
     return results
