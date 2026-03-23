@@ -1112,9 +1112,6 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
             showUnavailable(_("BookFusion not available. Make sure it is linked."))
         end
 
-            showUnavailable(_("Open a BookFusion book first or link your device."))
-        end
-
     elseif action_id == "wifi_toggle" then
         M.doWifiToggle(plugin); return
 
