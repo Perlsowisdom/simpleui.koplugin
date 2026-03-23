@@ -482,6 +482,9 @@ msgid "Swipe Indicator"
 msgstr ""
 
 msgid "System Actions"
+msgid "Plugins…"
+msgstr ""
+
 msgstr ""
 
 msgid "System action error: %s"
