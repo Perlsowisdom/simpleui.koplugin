@@ -208,11 +208,13 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Dynamically scan for all plugins registered in FM and ReaderUI
+-- Combined plugin scanner: dynamic scan + known plugins fallback
 local function _scanAllPlugins()
     local results = {}
     local seen = {}
     
-    -- Scan FileManager plugins
+    -- 1. First, try dynamic scanning for already-loaded plugins
+    -- Scan FileManager
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
     if fm then
@@ -244,33 +246,86 @@ local function _scanAllPlugins()
         end
     end
     
-    -- Scan ReaderUI plugins
+    -- Scan ReaderUI
     local ReaderUI = package.loaded["apps/reader/readerui"]
     ReaderUI = ReaderUI and ReaderUI.instance
     if ReaderUI then
-        local ru_val_to_key = {}
+        local ui_val_to_key = {}
         for k, v in pairs(ReaderUI) do
-            if type(k) == "string" and type(v) == "table" then ru_val_to_key[v] = k end
+            if type(k) == "string" and type(v) == "table" then ui_val_to_key[v] = k end
         end
         for i = 1, #ReaderUI do
             local val = ReaderUI[i]
             if type(val) == "table" and type(val.name) == "string" then
-                local ru_key = ru_val_to_key[val]
-                if ru_key and not seen[ru_key] and type(val.addToMainMenu) == "function" then
-                    seen[ru_key] = true
+                local ui_key = ui_val_to_key[val]
+                if ui_key and not seen[ui_key] and type(val.addToMainMenu) == "function" then
+                    seen[ui_key] = true
                     local method = nil
                     for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
                         if type(val[pfx]) == "function" then method = pfx; break end
                     end
                     if not method then
-                        local cap = "on" .. ru_key:sub(1,1):upper() .. ru_key:sub(2)
+                        local cap = "on" .. ui_key:sub(1,1):upper() .. ui_key:sub(2)
                         if type(val[cap]) == "function" then method = cap end
                     end
                     if method then
-                        local display = (val.name or ru_key)
-                        results[#results + 1] = { fm_key = ru_key, fm_method = method, title = display }
+                        local raw = (val.name or ui_key):gsub("^reader", "")
+                        local display = raw:sub(1,1):upper() .. raw:sub(2)
+                        results[#results + 1] = { fm_key = ui_key, fm_method = method, title = display }
                     end
                 end
+            end
+        end
+    end
+    
+    -- 2. Fall back to known plugins list for plugins that aren't loaded yet
+    -- These will only show if the plugin has been loaded at some point
+    local known = {
+        { key = "bookfusion",       method = "onSearchBooks",         title = "BookFusion" },
+        { key = "kostore",          method = "onShowStore",           title = "KOStore" },
+        { key = "evernote",         method = "onShowEvernote",        title = "Evernote" },
+        { key = "hdgrid",           method = "onShowHdGrid",          title = "HD Grid" },
+        { key = "husky",            method = "onShowHusky",           title = "Husky" },
+        { key = "keepish",          method = "onShowKeepish",         title = "Keepish" },
+        { key = "notesplus",        method = "onShowNotesPlus",       title = "Notes+" },
+        { key = "ocr",              method = "onShowOCR",             title = "OCR" },
+        { key = "parking",          method = "onShowParking",        title = "Parking" },
+        { key = "readinglife",      method = "onShowReadingLife",     title = "Reading Life" },
+        { key = "sendtodevice",     method = "onShowSendToDevice",   title = "Send to Device" },
+        { key = "skeleton",         method = "onShowSkeleton",        title = "Skeleton" },
+        { key = "ssh",              method = "onShowSSH",             title = "SSH" },
+        { key = "statistics",       method = "onShowStatistics",      title = "Statistics" },
+        { key = "terminal",         method = "onShowTerminal",        title = "Terminal" },
+        { key = "texteditor",       method = "onShowTextEditor",      title = "Text Editor" },
+        { key = "vimkeymap",        method = "onShowVimKeymap",      title = "Vim Keymap" },
+        { key = "wallabag",         method = "onShowWallabag",        title = "Wallabag" },
+        { key = "calibre",           method = "onShowCalibre",         title = "Calibre" },
+        { key = "calibre_wireless", method = "onShowCalibreWireless", title = "Calibre Wireless" },
+        { key = "zotero",           method = "onShowZotero",          title = "Zotero" },
+        { key = "pandora",          method = "onShowPandora",         title = "Pandora" },
+        { key = "slash",            method = "onShowSlash",           title = "Slash" },
+        { key = "dropbox",          method = "onShowDropbox",         title = "Dropbox" },
+        { key = "webbrowser",       method = "onShowWebBrowser",     title = "Web Browser" },
+        { key = "goodread",         method = "onShowGoodRead",        title = "GoodReads" },
+        { key = "markwarm",         method = "onShowMarkWarmer",      title = "MarkWarmer" },
+        { key = "servermode",       method = "onShowServerMode",      title = "Server Mode" },
+        { key = "focus",            method = "onShowFocus",           title = "Focus" },
+    }
+    
+    for _, entry in ipairs(known) do
+        if not seen[entry.key] then
+            -- Check FM
+            local found = false
+            if fm and fm[entry.key] and type(fm[entry.key][entry.method]) == "function" then
+                seen[entry.key] = true
+                found = true
+                results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
+            end
+            -- Check ReaderUI
+            if not found and ReaderUI and ReaderUI[entry.key] and type(ReaderUI[entry.key][entry.method]) == "function" then
+                seen[entry.key] = true
+                found = true
+                results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
             end
         end
     end
