@@ -278,60 +278,36 @@ local function _scanAllPlugins()
         end
     end
     
-    -- 2. Fall back to known plugins list for plugins that aren't loaded yet
-    -- These will only show if the plugin has been loaded at some point
+
+    -- Known plugins that may not be loaded yet
     local known = {
         { key = "bookfusion",       method = "onSearchBooks",         title = "BookFusion" },
         { key = "kostore",          method = "onShowStore",           title = "KOStore" },
-        { key = "evernote",         method = "onShowEvernote",        title = "Evernote" },
-        { key = "hdgrid",           method = "onShowHdGrid",          title = "HD Grid" },
-        { key = "husky",            method = "onShowHusky",           title = "Husky" },
-        { key = "keepish",          method = "onShowKeepish",         title = "Keepish" },
-        { key = "notesplus",        method = "onShowNotesPlus",       title = "Notes+" },
-        { key = "ocr",              method = "onShowOCR",             title = "OCR" },
-        { key = "parking",          method = "onShowParking",        title = "Parking" },
-        { key = "readinglife",      method = "onShowReadingLife",     title = "Reading Life" },
-        { key = "sendtodevice",     method = "onShowSendToDevice",   title = "Send to Device" },
-        { key = "skeleton",         method = "onShowSkeleton",        title = "Skeleton" },
-        { key = "ssh",              method = "onShowSSH",             title = "SSH" },
         { key = "statistics",       method = "onShowStatistics",      title = "Statistics" },
         { key = "terminal",         method = "onShowTerminal",        title = "Terminal" },
         { key = "texteditor",       method = "onShowTextEditor",      title = "Text Editor" },
         { key = "vimkeymap",        method = "onShowVimKeymap",      title = "Vim Keymap" },
         { key = "wallabag",         method = "onShowWallabag",        title = "Wallabag" },
-        { key = "calibre",           method = "onShowCalibre",         title = "Calibre" },
+        { key = "calibre",          method = "onShowCalibre",         title = "Calibre" },
         { key = "calibre_wireless", method = "onShowCalibreWireless", title = "Calibre Wireless" },
         { key = "zotero",           method = "onShowZotero",          title = "Zotero" },
-        { key = "pandora",          method = "onShowPandora",         title = "Pandora" },
-        { key = "slash",            method = "onShowSlash",           title = "Slash" },
         { key = "dropbox",          method = "onShowDropbox",         title = "Dropbox" },
         { key = "webbrowser",       method = "onShowWebBrowser",     title = "Web Browser" },
-        { key = "goodread",         method = "onShowGoodRead",        title = "GoodReads" },
-        { key = "markwarm",         method = "onShowMarkWarmer",      title = "MarkWarmer" },
+        { key = "evernote",         method = "onShowEvernote",       title = "Evernote" },
+        { key = "ssh",              method = "onShowSSH",             title = "SSH" },
+        { key = "ocr",              method = "onShowOCR",             title = "OCR" },
         { key = "servermode",       method = "onShowServerMode",      title = "Server Mode" },
-        { key = "focus",            method = "onShowFocus",           title = "Focus" },
     }
-    
+    -- Try to require the plugin module directly (for plugins not loaded yet)
     for _, entry in ipairs(known) do
         if not seen[entry.key] then
-            -- Check FM
-            local found = false
-            if fm and fm[entry.key] and type(fm[entry.key][entry.method]) == "function" then
+            local ok, plugin = pcall(require, "plugins/" .. entry.key .. ".koplugin.main")
+            if ok and plugin and type(plugin[entry.method]) == "function" then
                 seen[entry.key] = true
-                found = true
-                results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
-            end
-            -- Check ReaderUI
-            if not found and ReaderUI and ReaderUI.plugins and ReaderUI.plugins[entry.key] and type(ReaderUI.plugins[entry.key][entry.method]) == "function" then
-                seen[entry.key] = true
-                found = true
                 results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
             end
         end
     end
-    
-    table.sort(results, function(a, b) return a.title < b.title end)
-    return results
 end
 
 
