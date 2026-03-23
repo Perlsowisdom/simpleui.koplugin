@@ -726,6 +726,7 @@ local function _isInPlaceAction(action_id)
     if action_id == "frontlight"       then return true end
     if action_id == "power"            then return true end
     if action_id == "stats_calendar"   then return true end
+    if action_id == "bookfusion"       then return true end
     if action_id == "bookmark_browser" then return true end
     if action_id:match("^custom_qa_%d+$") then
         local cfg = Config.getCustomQAConfig(action_id)
@@ -846,6 +847,14 @@ local function _executeInPlace(action_id, plugin, fm)
             UIManager:broadcastEvent(require("ui/event"):new("ShowCalendarView"))
         end)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
+
+    elseif action_id == "bookfusion" then
+        local bf = fm and fm.bookfusion
+        if bf and type(bf.onSearchBooks) == "function" then
+            bf:onSearchBooks()
+        else
+            showUnavailable(_("BookFusion plugin not available."))
+        end
 
     elseif action_id == "bookmark_browser" then
         -- Show the source-selection ButtonDialog floating above the homescreen.
@@ -1095,7 +1104,14 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
             UIManager:broadcastEvent(require("ui/event"):new("ShowCalendarView"))
         end)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
-        return
+
+    elseif action_id == "bookfusion" then
+        local bf = fm and fm.bookfusion
+        if bf and type(bf.onSearchBooks) == "function" then
+            bf:onSearchBooks()
+        else
+            showUnavailable(_("BookFusion plugin not available."))
+        end
 
     elseif action_id == "wifi_toggle" then
         M.doWifiToggle(plugin); return
