@@ -301,7 +301,7 @@ local function _scanAllPlugins()
     -- Try to require the plugin module directly (for plugins not loaded yet)
     for _, entry in ipairs(known) do
         if not seen[entry.key] then
-            local ok, plugin = pcall(require, "plugins/" .. entry.key .. ".koplugin.main")
+            local ok, plugin = pcall(require, "plugins." .. entry.key .. ".koplugin.main")
             if ok and plugin and type(plugin[entry.method]) == "function" then
                 seen[entry.key] = true
                 results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
