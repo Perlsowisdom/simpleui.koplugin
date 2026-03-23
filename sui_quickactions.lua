@@ -322,7 +322,7 @@ local function _scanAllPlugins()
                 results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
             end
             -- Check ReaderUI
-            if not found and ReaderUI and ReaderUI[entry.key] and type(ReaderUI[entry.key][entry.method]) == "function" then
+            if not found and ReaderUI and ReaderUI.plugins and ReaderUI.plugins[entry.key] and type(ReaderUI.plugins[entry.key][entry.method]) == "function" then
                 seen[entry.key] = true
                 found = true
                 results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
