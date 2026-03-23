@@ -176,6 +176,26 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
         end
         table.sort(items, function(a, b) return a._sort_key < b._sort_key end)
         for _i, item in ipairs(items) do item._sort_key = nil end
+
+        -- Add separator and direct plugin/system action pickers
+        items[#items + 1] = { separator = true }
+
+        items[#items + 1] = {
+            text     = _("Plugins…"),
+            callback = function()
+                local QA = require("sui_quickactions")
+                QA.showPluginPickerForTab(plugin, pos)
+            end,
+        }
+
+        items[#items + 1] = {
+            text     = _("System Actions…"),
+            callback = function()
+                local QA = require("sui_quickactions")
+                QA.showDispatcherPickerForTab(plugin, pos)
+            end,
+        }
+
         return items
     end
 

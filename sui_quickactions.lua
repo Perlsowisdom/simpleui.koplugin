@@ -773,3 +773,113 @@ function QA.makeMenuItems(plugin)
 end
 
 return QA
+
+-- ---------------------------------------------------------------------------
+-- Quick-add a plugin action directly to a tab position
+-- plugin: SimpleUI plugin instance
+-- pos: tab position (1-based index) to assign to
+-- fm_key: plugin key in FM (e.g. "bookfusion")
+-- fm_method: method name to call (e.g. "onSearchBooks")
+-- title: display name for the action
+-- ---------------------------------------------------------------------------
+
+function QA.quickAddPluginToTab(plugin, pos, fm_key, fm_method, title)
+    local sanitize = Config.sanitizeLabel
+    local label = sanitize(title) or "Plugin"
+
+    -- Create a new custom QA
+    local qa_id = Config.nextCustomQAId()
+    local list = Config.getCustomQAList()
+    list[#list + 1] = qa_id
+    Config.saveCustomQAList(list)
+    Config.saveCustomQAConfig(qa_id, label, nil, nil,
+        Config.CUSTOM_PLUGIN_ICON, fm_key, fm_method, nil)
+
+    -- Assign to the specified tab position
+    local tabs = Config.loadTabConfig()
+    if pos >= 1 and pos <= #tabs then
+        tabs[pos] = qa_id
+        Config.saveTabConfig(tabs)
+    end
+
+    QA.invalidateCustomQACache()
+    plugin:_rebuildAllNavbars()
+end
+
+function QA.quickAddDispatcherToTab(plugin, pos, action_id, title)
+    local sanitize = Config.sanitizeLabel
+    local label = sanitize(title) or "Action"
+
+    -- Create a new custom QA for the dispatcher action
+    local qa_id = Config.nextCustomQAId()
+    local list = Config.getCustomQAList()
+    list[#list + 1] = qa_id
+    Config.saveCustomQAList(list)
+    Config.saveCustomQAConfig(qa_id, label, nil, nil,
+        Config.CUSTOM_DISPATCHER_ICON, nil, nil, action_id)
+
+    -- Assign to the specified tab position
+    local tabs = Config.loadTabConfig()
+    if pos >= 1 and pos <= #tabs then
+        tabs[pos] = qa_id
+        Config.saveTabConfig(tabs)
+    end
+
+    QA.invalidateCustomQACache()
+    plugin:_rebuildAllNavbars()
+end
+
+-- Show a plugin picker that directly assigns to a tab position
+-- Returns immediately if no plugins found
+function QA.showPluginPickerForTab(plugin, pos)
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local InfoMessage = require("ui/widget/infomessage")
+
+    local plugin_actions = _scanFMPlugins()
+    if #plugin_actions == 0 then
+        UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
+        return
+    end
+
+    local buttons = {}
+    table.sort(plugin_actions, function(a, b) return a.title:lower() < b.title:lower() end)
+
+    for _i, a in ipairs(plugin_actions) do
+        local _a = a
+        buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+            UIManager:close(plugin._qa_tab_plugin_picker)
+            QA.quickAddPluginToTab(plugin, pos, _a.fm_key, _a.fm_method, _a.title)
+        end }}
+    end
+    buttons[#buttons + 1] = {{ text = _("Cancel"),
+        callback = function() UIManager:close(plugin._qa_tab_plugin_picker) end }}
+    plugin._qa_tab_plugin_picker = ButtonDialog:new{ buttons = buttons }
+    UIManager:show(plugin._qa_tab_plugin_picker)
+end
+
+-- Show a dispatcher action picker that directly assigns to a tab position
+function QA.showDispatcherPickerForTab(plugin, pos)
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local InfoMessage = require("ui/widget/infomessage")
+
+    local actions = _scanDispatcherActions()
+    if #actions == 0 then
+        UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
+        return
+    end
+
+    local buttons = {}
+    table.sort(actions, function(a, b) return a.title:lower() < b.title:lower() end)
+
+    for _i, a in ipairs(actions) do
+        local _a = a
+        buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+            UIManager:close(plugin._qa_tab_dispatcher_picker)
+            QA.quickAddDispatcherToTab(plugin, pos, _a.id, _a.title)
+        end }}
+    end
+    buttons[#buttons + 1] = {{ text = _("Cancel"),
+        callback = function() UIManager:close(plugin._qa_tab_dispatcher_picker) end }}
+    plugin._qa_tab_dispatcher_picker = ButtonDialog:new{ buttons = buttons }
+    UIManager:show(plugin._qa_tab_dispatcher_picker)
+end
