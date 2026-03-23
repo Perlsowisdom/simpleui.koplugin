@@ -220,12 +220,67 @@ local function _scanFMPlugins()
         { key = "folder_shortcuts", method = "onShowFolderShortcutsDialog",     title = _("Folder Shortcuts")  },
         { key = "dictionary",       method = "onShowDictionaryLookup",          title = _("Dictionary Lookup") },
         { key = "wikipedia",        method = "onShowWikipediaLookup",           title = _("Wikipedia Lookup")  },
+        -- Reader UI plugins (registered through self.ui.menu in reader context)
+        { key = "bookfusion",        method = "onSearchBooks",                   title = _("BookFusion")        },
+        { key = "kostore",          method = "onShowStore",                    title = _("KOStore")           },
+        { key = "evernote",         method = "onShowEvernote",                 title = _("Evernote")          },
+        { key = "印象笔记",           method = "onShowEvernote",                 title = _("印象笔记")             },
+        { key = "evernote_IM",      method = "onShowEvernote",                 title = _("Evernote (IM)")     },
+        { key = "hdgrid",           method = "onShowHdGrid",                   title = _("HD Grid")           },
+        { key = "husky",            method = "onShowHusky",                    title = _("Husky")             },
+        { key = "keepish",          method = "onShowKeepish",                  title = _("Keepish")           },
+        { key = "notesplus",        method = "onShowNotesPlus",                title = _("Notes+")            },
+        { key = "ocr",              method = "onShowOCR",                      title = _("OCR")               },
+        { key = "parking",          method = "onShowParking",                  title = _("Parking")           },
+        { key = "readinglife",      method = "onShowReadingLife",              title = _("Reading Life")      },
+        { key = "sendtodevice",     method = "onShowSendToDevice",            title = _("Send to Device")    },
+        { key = "skeleton",         method = "onShowSkeleton",                 title = _("Skeleton")          },
+        { key = "ssh",              method = "onShowSSH",                      title = _("SSH")               },
+        { key = "statistics",       method = "onShowStatistics",               title = _("Statistics")        },
+        { key = "terminal",         method = "onShowTerminal",                 title = _("Terminal")          },
+        { key = "texteditor",       method = "onShowTextEditor",               title = _("Text Editor")       },
+        { key = "vimkeymap",        method = "onShowVimKeymap",                title = _("Vim Keymap")        },
+        { key = "wallabag",         method = "onShowWallabag",                 title = _("Wallabag")          },
+        { key = "calibre",          method = "onShowCalibre",                  title = _("Calibre")           },
+        { key = "calibre_wireless", method = "onShowCalibreWireless",          title = _("Calibre Wireless")  },
+        { key = "zotero",           method = "onShowZotero",                   title = _("Zotero")            },
+        { key = "pandora",          method = "onShowPandora",                  title = _("Pandora")           },
+        { key = "slash",            method = "onShowSlash",                    title = _("Slash")             },
+        { key = "dropbox",          method = "onShowDropbox",                  title = _("Dropbox")           },
+        { key = "webbrowser",       method = "onShowWebBrowser",               title = _("Web Browser")       },
+        { key = "wifi传输",          method = "onShowWifiTransfer",            title = _("WiFi传输")            },
+        { key = "goodread",         method = "onShowGoodRead",                 title = _("GoodReads")         },
+        { key = "markwarm",         method = "onShowMarkWarmer",               title = _("MarkWarmer")        },
+        { key = "servermode",       method = "onShowServerMode",               title = _("Server Mode")       },
+        { key = "telegaram",        method = "onShowTelegaram",                title = _("Telegaram")         },
+        { key = "tts",              method = "onShowTTS",                      title = _("Text to Speech")    },
+        { key = "focus",            method = "onShowFocus",                    title = _("Focus")             },
+        { key = "page OPT",         method = "onShowPage OPT",                 title = _("Page OPT")          },
     }
     local results = {}
     for _, entry in ipairs(known) do
+        -- Check FileManager first
         local mod = fm[entry.key]
         if mod and type(mod[entry.method]) == "function" then
             results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
+        end
+    end
+    -- Also check ReaderUI for reader-context plugins
+    local ReaderUI = package.loaded["apps/reader/readerui"]
+    ReaderUI = ReaderUI and ReaderUI.instance
+    if ReaderUI then
+        for _, entry in ipairs(known) do
+            local mod = ReaderUI[entry.key]
+            if mod and type(mod[entry.method]) == "function" then
+                -- Avoid duplicates
+                local found = false
+                for _, r in ipairs(results) do
+                    if r.fm_key == entry.key then found = true; break end
+                end
+                if not found then
+                    results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
+                end
+            end
         end
     end
     local native_keys = {
