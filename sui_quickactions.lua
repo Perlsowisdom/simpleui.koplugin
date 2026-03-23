@@ -207,119 +207,78 @@ end
 -- Plugin scanner helpers (used by showQuickActionDialog)
 -- ---------------------------------------------------------------------------
 
-local function _scanFMPlugins()
+-- Dynamically scan for all plugins registered in FM and ReaderUI
+local function _scanAllPlugins()
+    local results = {}
+    local seen = {}
+    
+    -- Scan FileManager plugins
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if not fm then return {} end
-    local known = {
-        { key = "history",          method = "onShowHist",                      title = _("History")           },
-        { key = "bookinfo",         method = "onShowBookInfo",                  title = _("Book Info")         },
-        { key = "collections",      method = "onShowColl",                      title = _("Favorites")         },
-        { key = "collections",      method = "onShowCollList",                  title = _("Collections")       },
-        { key = "filesearcher",     method = "onShowFileSearch",                title = _("File Search")       },
-        { key = "folder_shortcuts", method = "onShowFolderShortcutsDialog",     title = _("Folder Shortcuts")  },
-        { key = "dictionary",       method = "onShowDictionaryLookup",          title = _("Dictionary Lookup") },
-        { key = "wikipedia",        method = "onShowWikipediaLookup",           title = _("Wikipedia Lookup")  },
-        -- Reader UI plugins (registered through self.ui.menu in reader context)
-        { key = "bookfusion",        method = "onSearchBooks",                   title = _("BookFusion")        },
-        { key = "kostore",          method = "onShowStore",                    title = _("KOStore")           },
-        { key = "evernote",         method = "onShowEvernote",                 title = _("Evernote")          },
-        { key = "印象笔记",           method = "onShowEvernote",                 title = _("印象笔记")             },
-        { key = "evernote_IM",      method = "onShowEvernote",                 title = _("Evernote (IM)")     },
-        { key = "hdgrid",           method = "onShowHdGrid",                   title = _("HD Grid")           },
-        { key = "husky",            method = "onShowHusky",                    title = _("Husky")             },
-        { key = "keepish",          method = "onShowKeepish",                  title = _("Keepish")           },
-        { key = "notesplus",        method = "onShowNotesPlus",                title = _("Notes+")            },
-        { key = "ocr",              method = "onShowOCR",                      title = _("OCR")               },
-        { key = "parking",          method = "onShowParking",                  title = _("Parking")           },
-        { key = "readinglife",      method = "onShowReadingLife",              title = _("Reading Life")      },
-        { key = "sendtodevice",     method = "onShowSendToDevice",            title = _("Send to Device")    },
-        { key = "skeleton",         method = "onShowSkeleton",                 title = _("Skeleton")          },
-        { key = "ssh",              method = "onShowSSH",                      title = _("SSH")               },
-        { key = "statistics",       method = "onShowStatistics",               title = _("Statistics")        },
-        { key = "terminal",         method = "onShowTerminal",                 title = _("Terminal")          },
-        { key = "texteditor",       method = "onShowTextEditor",               title = _("Text Editor")       },
-        { key = "vimkeymap",        method = "onShowVimKeymap",                title = _("Vim Keymap")        },
-        { key = "wallabag",         method = "onShowWallabag",                 title = _("Wallabag")          },
-        { key = "calibre",          method = "onShowCalibre",                  title = _("Calibre")           },
-        { key = "calibre_wireless", method = "onShowCalibreWireless",          title = _("Calibre Wireless")  },
-        { key = "zotero",           method = "onShowZotero",                   title = _("Zotero")            },
-        { key = "pandora",          method = "onShowPandora",                  title = _("Pandora")           },
-        { key = "slash",            method = "onShowSlash",                    title = _("Slash")             },
-        { key = "dropbox",          method = "onShowDropbox",                  title = _("Dropbox")           },
-        { key = "webbrowser",       method = "onShowWebBrowser",               title = _("Web Browser")       },
-        { key = "wifi传输",          method = "onShowWifiTransfer",            title = _("WiFi传输")            },
-        { key = "goodread",         method = "onShowGoodRead",                 title = _("GoodReads")         },
-        { key = "markwarm",         method = "onShowMarkWarmer",               title = _("MarkWarmer")        },
-        { key = "servermode",       method = "onShowServerMode",               title = _("Server Mode")       },
-        { key = "telegaram",        method = "onShowTelegaram",                title = _("Telegaram")         },
-        { key = "tts",              method = "onShowTTS",                      title = _("Text to Speech")    },
-        { key = "focus",            method = "onShowFocus",                    title = _("Focus")             },
-        { key = "page OPT",         method = "onShowPage OPT",                 title = _("Page OPT")          },
-    }
-    local results = {}
-    for _, entry in ipairs(known) do
-        -- Check FileManager first
-        local mod = fm[entry.key]
-        if mod and type(mod[entry.method]) == "function" then
-            results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
+    if fm then
+        local fm_val_to_key = {}
+        for k, v in pairs(fm) do
+            if type(k) == "string" and type(v) == "table" then fm_val_to_key[v] = k end
         end
-    end
-    -- Also check ReaderUI for reader-context plugins
-    local ReaderUI = package.loaded["apps/reader/readerui"]
-    ReaderUI = ReaderUI and ReaderUI.instance
-    if ReaderUI then
-        for _, entry in ipairs(known) do
-            local mod = ReaderUI[entry.key]
-            if mod and type(mod[entry.method]) == "function" then
-                -- Avoid duplicates
-                local found = false
-                for _, r in ipairs(results) do
-                    if r.fm_key == entry.key then found = true; break end
-                end
-                if not found then
-                    results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
+        for i = 1, #fm do
+            local val = fm[i]
+            if type(val) == "table" and type(val.name) == "string" then
+                local fm_key = fm_val_to_key[val]
+                if fm_key and not seen[fm_key] and type(val.addToMainMenu) == "function" then
+                    seen[fm_key] = true
+                    local method = nil
+                    for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
+                        if type(val[pfx]) == "function" then method = pfx; break end
+                    end
+                    if not method then
+                        local cap = "on" .. fm_key:sub(1,1):upper() .. fm_key:sub(2)
+                        if type(val[cap]) == "function" then method = cap end
+                    end
+                    if method then
+                        local raw = (val.name or fm_key):gsub("^filemanager", "")
+                        local display = raw:sub(1,1):upper() .. raw:sub(2)
+                        results[#results + 1] = { fm_key = fm_key, fm_method = method, title = display }
+                    end
                 end
             end
         end
     end
-    local native_keys = {
-        screenshot=true, menu=true, history=true, bookinfo=true, collections=true,
-        filesearcher=true, folder_shortcuts=true, languagesupport=true,
-        dictionary=true, wikipedia=true, devicestatus=true, devicelistener=true,
-        networklistener=true,
-    }
-    local our_name  = "simpleui"
-    local seen_keys = {}
-    local fm_val_to_key = {}
-    for k, v in pairs(fm) do
-        if type(k) == "string" and type(v) == "table" then fm_val_to_key[v] = k end
+    
+    -- Scan ReaderUI plugins
+    local ReaderUI = package.loaded["apps/reader/readerui"]
+    ReaderUI = ReaderUI and ReaderUI.instance
+    if ReaderUI then
+        local ru_val_to_key = {}
+        for k, v in pairs(ReaderUI) do
+            if type(k) == "string" and type(v) == "table" then ru_val_to_key[v] = k end
+        end
+        for i = 1, #ReaderUI do
+            local val = ReaderUI[i]
+            if type(val) == "table" and type(val.name) == "string" then
+                local ru_key = ru_val_to_key[val]
+                if ru_key and not seen[ru_key] and type(val.addToMainMenu) == "function" then
+                    seen[ru_key] = true
+                    local method = nil
+                    for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
+                        if type(val[pfx]) == "function" then method = pfx; break end
+                    end
+                    if not method then
+                        local cap = "on" .. ru_key:sub(1,1):upper() .. ru_key:sub(2)
+                        if type(val[cap]) == "function" then method = cap end
+                    end
+                    if method then
+                        local display = (val.name or ru_key)
+                        results[#results + 1] = { fm_key = ru_key, fm_method = method, title = display }
+                    end
+                end
+            end
+        end
     end
-    for i = 1, #fm do
-        local val = fm[i]
-        if type(val) ~= "table" or type(val.name) ~= "string" then goto cont end
-        local fm_key = fm_val_to_key[val]
-        if not fm_key or native_keys[fm_key] or seen_keys[fm_key] or fm_key == our_name then goto cont end
-        if type(val.addToMainMenu) ~= "function" then goto cont end
-        seen_keys[fm_key] = true
-        local method = nil
-        for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
-            if type(val[pfx]) == "function" then method = pfx; break end
-        end
-        if not method then
-            local cap = "on" .. fm_key:sub(1,1):upper() .. fm_key:sub(2)
-            if type(val[cap]) == "function" then method = cap end
-        end
-        if method then
-            local raw     = (val.name or fm_key):gsub("^filemanager", "")
-            local display = raw:sub(1,1):upper() .. raw:sub(2)
-            results[#results + 1] = { fm_key = fm_key, fm_method = method, title = display }
-        end
-        ::cont::
-    end
+    
     table.sort(results, function(a, b) return a.title < b.title end)
     return results
 end
+
 
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
@@ -503,7 +462,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
     local function openPluginPicker()
-        local plugin_actions = _scanFMPlugins()
+        local plugin_actions = _scanAllPlugins()
         if #plugin_actions == 0 then
             UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
             return
@@ -889,7 +848,7 @@ function QA.showPluginPickerForTab(plugin, pos)
     local ButtonDialog = require("ui/widget/buttondialog")
     local InfoMessage = require("ui/widget/infomessage")
 
-    local plugin_actions = _scanFMPlugins()
+    local plugin_actions = _scanAllPlugins()
     if #plugin_actions == 0 then
         UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
         return
