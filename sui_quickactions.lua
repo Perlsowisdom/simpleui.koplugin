@@ -213,72 +213,50 @@ local function _scanAllPlugins()
     local results = {}
     local seen = {}
     
-    -- 1. First, try dynamic scanning for already-loaded plugins
-    -- Scan FileManager
+    -- Scan FileManager plugins from menu_items table
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if fm then
-        local fm_val_to_key = {}
-        for k, v in pairs(fm) do
-            if type(k) == "string" and type(v) == "table" then fm_val_to_key[v] = k end
-        end
-        for i = 1, #fm do
-            local val = fm[i]
-            if type(val) == "table" and type(val.name) == "string" then
-                local fm_key = fm_val_to_key[val]
-                if fm_key and not seen[fm_key] and type(val.addToMainMenu) == "function" then
-                    seen[fm_key] = true
-                    local method = nil
-                    for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
-                        if type(val[pfx]) == "function" then method = pfx; break end
-                    end
-                    if not method then
-                        local cap = "on" .. fm_key:sub(1,1):upper() .. fm_key:sub(2)
-                        if type(val[cap]) == "function" then method = cap end
-                    end
-                    if method then
-                        local raw = (val.name or fm_key):gsub("^filemanager", "")
-                        local display = raw:sub(1,1):upper() .. raw:sub(2)
-                        results[#results + 1] = { fm_key = fm_key, fm_method = method, title = display }
-                    end
+    if fm and fm.menu_items then
+        for key, val in pairs(fm.menu_items) do
+            if type(val) == "table" and type(val.addToMainMenu) == "function" and not seen[key] then
+                seen[key] = true
+                local method = nil
+                for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
+                    if type(val[pfx]) == "function" then method = pfx; break end
+                end
+                if not method then
+                    local cap = "on" .. key:sub(1,1):upper() .. key:sub(2)
+                    if type(val[cap]) == "function" then method = cap end
+                end
+                if method then
+                    results[#results + 1] = { fm_key = key, fm_method = method, title = val.text or key }
                 end
             end
         end
     end
     
-    -- Scan ReaderUI
+    -- Scan ReaderUI plugins from menu_items table
     local ReaderUI = package.loaded["apps/reader/readerui"]
     ReaderUI = ReaderUI and ReaderUI.instance
-    if ReaderUI then
-        local ui_val_to_key = {}
-        for k, v in pairs(ReaderUI) do
-            if type(k) == "string" and type(v) == "table" then ui_val_to_key[v] = k end
-        end
-        for i = 1, #ReaderUI do
-            local val = ReaderUI[i]
-            if type(val) == "table" and type(val.name) == "string" then
-                local ui_key = ui_val_to_key[val]
-                if ui_key and not seen[ui_key] and type(val.addToMainMenu) == "function" then
-                    seen[ui_key] = true
-                    local method = nil
-                    for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
-                        if type(val[pfx]) == "function" then method = pfx; break end
-                    end
-                    if not method then
-                        local cap = "on" .. ui_key:sub(1,1):upper() .. ui_key:sub(2)
-                        if type(val[cap]) == "function" then method = cap end
-                    end
-                    if method then
-                        local raw = (val.name or ui_key):gsub("^reader", "")
-                        local display = raw:sub(1,1):upper() .. raw:sub(2)
-                        results[#results + 1] = { fm_key = ui_key, fm_method = method, title = display }
-                    end
+    if ReaderUI and ReaderUI.menu_items then
+        for key, val in pairs(ReaderUI.menu_items) do
+            if type(val) == "table" and type(val.addToMainMenu) == "function" and not seen[key] then
+                seen[key] = true
+                local method = nil
+                for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
+                    if type(val[pfx]) == "function" then method = pfx; break end
+                end
+                if not method then
+                    local cap = "on" .. key:sub(1,1):upper() .. key:sub(2)
+                    if type(val[cap]) == "function" then method = cap end
+                end
+                if method then
+                    results[#results + 1] = { fm_key = key, fm_method = method, title = val.text or key }
                 end
             end
         end
     end
     
-
     -- Known plugins that may not be loaded yet
     local known = {
         { key = "bookfusion",       method = "onSearchBooks",         title = "BookFusion" },
@@ -305,6 +283,8 @@ local function _scanAllPlugins()
             seen[entry.key] = true
         end
     end
+    
+    table.sort(results, function(a, b) return a.title < b.title end)
     return results
 end
 
