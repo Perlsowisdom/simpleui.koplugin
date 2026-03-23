@@ -772,7 +772,6 @@ function QA.makeMenuItems(plugin)
     return items
 end
 
-return QA
 
 -- ---------------------------------------------------------------------------
 -- Quick-add a plugin action directly to a tab position
@@ -883,3 +882,4 @@ function QA.showDispatcherPickerForTab(plugin, pos)
     plugin._qa_tab_dispatcher_picker = ButtonDialog:new{ buttons = buttons }
     UIManager:show(plugin._qa_tab_dispatcher_picker)
 end
+return QA
