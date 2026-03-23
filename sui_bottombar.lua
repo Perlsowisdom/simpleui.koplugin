@@ -849,20 +849,15 @@ local function _executeInPlace(action_id, plugin, fm)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
 
     elseif action_id == "bookfusion" then
-        local ReaderUI = package.loaded["apps/reader/readerui"]
-        local reader = ReaderUI and ReaderUI.instance
-        local bf = reader and reader.menu_items and reader.menu_items.bookfusion
+        -- Try FileManager first (home screen), then ReaderUI (while reading)
+        local ui = fm or plugin.ui
+        local bf = ui and ui.menu_items and ui.menu_items.bookfusion
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
-            showUnavailable(_("Open a BookFusion book first or link your device."))
+            showUnavailable(_("BookFusion not available. Make sure it is linked."))
         end
 
-    elseif action_id == "bookmark_browser" then
-        -- Show the source-selection ButtonDialog floating above the homescreen.
-        -- Same pattern as frontlight: non-fullscreen widget, HS stays visible.
-        local _bb_ui = fm
-        local ok_rui, ReaderUI = pcall(require, "apps/reader/readerui")
         if ok_rui and ReaderUI and ReaderUI.instance then
             _bb_ui = ReaderUI.instance
         end
@@ -1108,12 +1103,15 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
 
     elseif action_id == "bookfusion" then
-        local ReaderUI = package.loaded["apps/reader/readerui"]
-        local reader = ReaderUI and ReaderUI.instance
-        local bf = reader and reader.menu_items and reader.menu_items.bookfusion
+        -- Try FileManager first (home screen), then ReaderUI (while reading)
+        local ui = fm or plugin.ui
+        local bf = ui and ui.menu_items and ui.menu_items.bookfusion
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
+            showUnavailable(_("BookFusion not available. Make sure it is linked."))
+        end
+
             showUnavailable(_("Open a BookFusion book first or link your device."))
         end
 
