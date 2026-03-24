@@ -3,11 +3,6 @@
 --   • Storage: custom QA CRUD, default-action label/icon overrides
 --   • Resolution: getEntry(id) — used by both bottombar and module_quick_actions
 --   • Menus: icon picker, rename dialog, create/edit/delete flows
---
--- Both sui_bottombar (buildTabCell) and module_quick_actions (buildQAWidget)
--- call QA.getEntry(id) so every label/icon change propagates everywhere
--- automatically.  sui_menu.lua calls QA.makeMenuItems(plugin) to obtain
--- the Create / Change Icons / Rename sub-menu items.
 
 local UIManager = require("ui/uimanager")
 local Device    = require("device")
@@ -21,17 +16,14 @@ local Config    = require("sui_config")
 local QA = {}
 
 -- ---------------------------------------------------------------------------
--- Icon directory (same as before — single definition now)
+-- Icon directory
 -- ---------------------------------------------------------------------------
 
--- Resolve icons/custom directory using an absolute path derived from this
--- file's location so it works on Android (relative paths fail there).
 local _qa_plugin_dir = debug.getinfo(1, "S").source:match("^@(.+/)[^/]+$") or "./"
 QA.ICONS_DIR = _qa_plugin_dir .. "icons/custom"
 
 -- ---------------------------------------------------------------------------
 -- Default-action label / icon overrides
--- Setting keys: navbar_action_<id>_label  /  navbar_action_<id>_icon
 -- ---------------------------------------------------------------------------
 
 local function _defaultLabelKey(id) return "navbar_action_" .. id .. "_label" end
@@ -62,7 +54,7 @@ function QA.setDefaultActionIcon(id, icon)
 end
 
 -- ---------------------------------------------------------------------------
--- getEntry(id) — canonical resolver used by ALL rendering code
+-- getEntry(id) — canonical resolver
 -- ---------------------------------------------------------------------------
 
 local _wifi_entry = { icon = "", label = "" }
@@ -167,7 +159,7 @@ function QA.showIconPicker(current_icon, on_select, default_label, _picker_handl
             enabled = false,
         }}
     else
-        for _i, icon in ipairs(icons) do
+        for _, icon in ipairs(icons) do
             local p = icon
             buttons[#buttons + 1] = {{
                 text     = p.label .. ((current_icon == p.path) and "  ✓" or ""),
@@ -187,35 +179,38 @@ function QA.showIconPicker(current_icon, on_select, default_label, _picker_handl
 end
 
 -- ---------------------------------------------------------------------------
--- Plugin scanner — disk-based discovery
+-- Plugin scanner
 --
--- Strategy:
---   1. Find the KOReader plugins/ directory relative to this file's location.
---   2. Walk every *.koplugin subdirectory.
---   3. Read _meta.lua for { name, fullname } — these are the stable identifiers.
---   4. Cross-reference with the live FileManager instance to discover the FM key
---      (the key under which the plugin instance is stored on fm).
---   5. Probe common entry-point method names on the live instance.
---   6. Fall back to source-file scanning when no live instance is found,
---      so plugins that are installed but not currently initialised still appear.
+-- KOReader's plugin loader stores each plugin on the FileManager (and
+-- ReaderUI) instance under the plugin's `name` field from _meta.lua.
+-- For example: _meta.lua { name = "bookfusion" } → fm.bookfusion = instance
 --
--- Returns a list of { fm_key, fm_method, title, plugin_name } tables,
--- sorted alphabetically by title, with duplicates removed.
+-- We scan the live FM instance first (most reliable), then supplement with
+-- disk-discovered plugins from _meta.lua for anything not yet active.
+--
+-- IMPORTANT: use fm[key] (normal access), NOT rawget — KOReader may use
+-- __index metamethods, and this matches what sui_bottombar.lua does at
+-- execution time:  fm and fm.menu_items and fm[cfg.plugin_key]
 -- ---------------------------------------------------------------------------
 
--- Common entry-point method names, in priority order.
--- We try each in turn on the live plugin instance and use the first that exists.
-local _ENTRY_METHODS = {
-    "onShowPlugin",
+-- Keys to skip — infrastructure or SimpleUI-handled.
+local _SKIP_KEYS = {
+    simpleui         = true,
+    gestures         = true,
+    backgroundrunner = true,
+    timesync         = true,
+    autowarmth       = true,
+}
+
+-- Ordered probe list — first match wins.
+local _PROBE_METHODS = {
     "onShow",
     "show",
     "open",
     "onOpen",
     "launch",
-    "onSearchBooks",   -- BookFusion
-    "onShowStatistics",
+    "onSearchBooks",
     "onShowStore",
-    "onShowTerminal",
     "onShowTextEditor",
     "onShowWallabag",
     "onShowCalendar",
@@ -223,112 +218,17 @@ local _ENTRY_METHODS = {
     "onShowDropbox",
     "onShowEvernote",
     "onShowZotero",
+    "onShowPlugin",
+    "onShowStatistics",
 }
 
--- Plugins that are part of KOReader core or SimpleUI itself — skip them.
-local _SKIP_PLUGINS = {
-    ["simpleui"]      = true,
-    ["statistics"]    = true,  -- accessed via dispatcher ("ShowCalendarView") instead
-    ["terminal"]      = true,  -- command-line only, not sensible as a QA
-    ["gestures"]      = true,
-    ["reading_glass"] = true,
-    ["autowarmth"]    = true,
-    ["backgroundrunner"] = true,
-    ["coverbrowser"]  = true,
-    ["opds"]          = true,
-    ["send2ebook"]    = true,
-    ["timesync"]      = true,
-}
-
--- Resolve the KOReader plugins root (two directories above this file:
--- .../plugins/simpleui.koplugin/sui_quickactions.lua → .../plugins/).
-local _koreader_plugins_dir = _qa_plugin_dir:match("^(.*/)plugins/[^/]+/$")
-if _koreader_plugins_dir then
-    _koreader_plugins_dir = _koreader_plugins_dir .. "plugins/"
-else
-    -- Fallback: assume the plugins dir is a sibling of the plugin directory.
-    _koreader_plugins_dir = _qa_plugin_dir:match("^(.*[/\\])") and
-        (_qa_plugin_dir:match("^(.*[/\\])") .. "../") or "plugins/"
-end
-
--- Cache: rebuilt lazily on first use, cleared when the user explicitly
--- requests a refresh (e.g. after installing a new plugin at runtime).
-local _plugin_disk_cache = nil
-
--- Read a Lua value from a tiny settings-style file using pattern matching.
--- Handles both:  name = "value"   and   ["name"] = "value"
-local function _readMetaField(content, field)
-    -- Standard assignment:  field = "value"
-    local v = content:match(field .. '%s*=%s*"([^"]+)"')
-    if v then return v end
-    -- Bracket style:  ["field"] = "value"
-    v = content:match('%["' .. field .. '"%]%s*=%s*"([^"]+)"')
-    return v
-end
-
--- Scan the plugins/ directory and return plugin metadata from _meta.lua files.
--- This is I/O-bound but only runs once (result is cached in _plugin_disk_cache).
-local function _scanInstalledPlugins()
-    if _plugin_disk_cache then return _plugin_disk_cache end
-
-    local results = {}
-    local plugins_dir = _koreader_plugins_dir
-
-    -- Verify the directory exists before attempting to iterate it.
-    if not plugins_dir or lfs.attributes(plugins_dir, "mode") ~= "directory" then
-        logger.warn("simpleui: QA: plugins directory not found at: " .. tostring(plugins_dir))
-        _plugin_disk_cache = results
-        return results
+local function _probeMethod(inst)
+    if type(inst) ~= "table" then return nil end
+    for _, m in ipairs(_PROBE_METHODS) do
+        if type(inst[m]) == "function" then return m end
     end
-
-    -- Walk every *.koplugin subdirectory.
-    for entry in lfs.dir(plugins_dir) do
-        if entry:match("%.koplugin$") and entry ~= "simpleui.koplugin" then
-            local plugin_dir = plugins_dir .. entry .. "/"
-            local meta_path  = plugin_dir .. "_meta.lua"
-
-            -- Must have a _meta.lua to be a valid plugin.
-            if lfs.attributes(meta_path, "mode") == "file" then
-                local f = io.open(meta_path, "r")
-                if f then
-                    local content = f:read("*a")
-                    f:close()
-
-                    local name     = _readMetaField(content, "name")
-                    local fullname = _readMetaField(content, "fullname")
-                    local title    = fullname or name
-
-                    if name and title and not _SKIP_PLUGINS[name] then
-                        results[#results + 1] = {
-                            name       = name,
-                            title      = title,
-                            plugin_dir = plugin_dir,
-                        }
-                    end
-                end
-            end
-        end
-    end
-
-    table.sort(results, function(a, b)
-        return a.title:lower() < b.title:lower()
-    end)
-
-    _plugin_disk_cache = results
-    return results
-end
-
--- Probe a live plugin instance for the best callable entry point.
--- Returns the method name string, or nil if none found.
-local function _probeEntryMethod(instance)
-    if not instance or type(instance) ~= "table" then return nil end
-    for _, method in ipairs(_ENTRY_METHODS) do
-        if type(instance[method]) == "function" then
-            return method
-        end
-    end
-    -- Generic fallback: look for any onShow* or on<Name>* method.
-    for k, v in pairs(instance) do
+    -- Generic sweep for any remaining onShow*/onOpen*/onLaunch*.
+    for k, v in pairs(inst) do
         if type(k) == "string" and type(v) == "function" then
             if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
                 return k
@@ -338,127 +238,132 @@ local function _probeEntryMethod(instance)
     return nil
 end
 
--- Discover the FM key for a named plugin.
--- KOReader registers plugins under their .name field on the FileManager instance.
--- We also try common casing variants.
-local function _findFMKey(fm, plugin_name)
-    if not fm or not plugin_name then return nil, nil end
-
-    -- Try the exact plugin name first (most common case).
-    local candidates = {
-        plugin_name,
-        plugin_name:lower(),
-        plugin_name:gsub("_", ""),
-        plugin_name:lower():gsub("_", ""),
-    }
-
-    for _, key in ipairs(candidates) do
-        local inst = rawget(fm, key)
-        if inst and type(inst) == "table" then
-            local method = _probeEntryMethod(inst)
-            if method then
-                return key, method
-            end
-        end
+-- Read name/fullname from a plugin's _meta.lua.
+local function _readPluginMeta(plugin_dir)
+    local f = io.open(plugin_dir .. "_meta.lua", "r")
+    if not f then return nil end
+    local content = f:read("*a")
+    f:close()
+    local function extract(field)
+        return content:match(field .. '%s*=%s*"([^"]+)"')
+            or content:match('%["' .. field .. '"%]%s*=%s*"([^"]+)"')
     end
-
-    -- Broader scan of all FM keys as a last resort.
-    for key, val in pairs(fm) do
-        if type(key) == "string" and type(val) == "table" then
-            -- Match by the plugin's .name field stored on the instance.
-            local inst_name = rawget(val, "name")
-            if inst_name == plugin_name or inst_name == plugin_name:lower() then
-                local method = _probeEntryMethod(val)
-                if method then
-                    return key, method
-                end
-            end
-        end
-    end
-
-    return nil, nil
+    local name = extract("name")
+    if not name then return nil end
+    return { name = name, fullname = extract("fullname") }
 end
 
--- Main scanner: combines disk metadata with live instance discovery.
--- Returns { fm_key, fm_method, title } suitable for the existing QA machinery.
-local function _scanAllPlugins()
-    local results = {}
-    local seen    = {}  -- dedup by fm_key
+-- Locate KOReader's plugins/ directory.
+-- This file: <root>/plugins/simpleui.koplugin/sui_quickactions.lua
+local function _findPluginsDir()
+    -- Walk up from our own path: strip plugin dir to get <root>/plugins/
+    local root = _qa_plugin_dir:match("^(.*/)plugins/[^/]+/$")
+    if root then return root .. "plugins/" end
+    -- DataStorage fallback (works on Android).
+    local ok_ds, ds = pcall(require, "datastorage")
+    if ok_ds and ds and type(ds.getDataDir) == "function" then
+        local d = ds.getDataDir():gsub("/$", "") .. "/plugins/"
+        if lfs.attributes(d, "mode") == "directory" then return d end
+    end
+    return nil
+end
 
-    -- Get the live FM instance (may be nil if called before FM is set up).
-    local fm = nil
-    local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
-    if ok_fm and FM then fm = FM.instance end
+local _plugins_dir = nil
+local _disk_cache  = nil  -- list of { name, title }
 
-    -- Phase 1: disk-discovered plugins cross-referenced with live instances.
-    local disk_plugins = _scanInstalledPlugins()
-    for _, meta in ipairs(disk_plugins) do
-        local fm_key, fm_method = _findFMKey(fm, meta.name)
-
-        if fm_key and fm_method and not seen[fm_key] then
-            seen[fm_key] = true
-            results[#results + 1] = {
-                fm_key    = fm_key,
-                fm_method = fm_method,
-                title     = meta.title,
-            }
-        elseif not fm_key then
-            -- Plugin is installed but not currently initialised in the FM.
-            -- Store it with a placeholder key so the QA system can still
-            -- create an entry — it will be resolved at tap-time.
-            -- We use the plugin name as a synthetic key prefixed with "plugin:"
-            -- to distinguish it from real FM keys. The navigation code in
-            -- sui_bottombar.lua and sui_homescreen.lua already handles the
-            -- plugin_key / plugin_method pair, so we just need a stable key.
-            local synthetic_key = meta.name
-            if not seen[synthetic_key] then
-                seen[synthetic_key] = true
-                results[#results + 1] = {
-                    fm_key    = meta.name,
-                    fm_method = "onShow",   -- will be probed at tap-time
-                    title     = meta.title,
-                    _pending  = true,       -- flag: not yet live, resolve later
+local function _getDiskPlugins()
+    if _disk_cache then return _disk_cache end
+    if not _plugins_dir then _plugins_dir = _findPluginsDir() end
+    local result = {}
+    if not _plugins_dir or lfs.attributes(_plugins_dir, "mode") ~= "directory" then
+        logger.warn("simpleui: QA: plugins/ dir not found: " .. tostring(_plugins_dir))
+        _disk_cache = result
+        return result
+    end
+    for entry in lfs.dir(_plugins_dir) do
+        if entry ~= "." and entry ~= ".." and entry ~= "simpleui.koplugin"
+                and entry:match("%.koplugin$") then
+            local meta = _readPluginMeta(_plugins_dir .. entry .. "/")
+            if meta and meta.name and not _SKIP_KEYS[meta.name] then
+                result[#result + 1] = {
+                    name  = meta.name,
+                    title = meta.fullname or meta.name,
                 }
             end
         end
     end
+    table.sort(result, function(a, b) return a.title:lower() < b.title:lower() end)
+    _disk_cache = result
+    return result
+end
 
-    -- Phase 2: sweep the live FM for any plugin we missed (e.g. dynamically
-    -- loaded plugins not backed by a _meta.lua file, or third-party plugins
-    -- with unusual directory naming).
+function QA.invalidatePluginCache()
+    _disk_cache   = nil
+    _plugins_dir  = nil
+end
+
+-- Main scanner — returns { fm_key, fm_method, title [, _inactive=true] }
+local function _scanAllPlugins()
+    -- Get live FM instance.
+    local fm = nil
+    local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
+    if ok_fm and FM then fm = FM.instance end
+
+    local results = {}
+    local seen    = {}
+
+    -- Phase 1: for each disk-discovered plugin, find its live FM instance.
+    for _, meta in ipairs(_getDiskPlugins()) do
+        local name = meta.name
+        local fm_key, fm_method
+
+        if fm then
+            -- Try the exact name, then common casing variants.
+            for _, candidate in ipairs({ name, name:lower(), name:gsub("_",""), name:lower():gsub("_","") }) do
+                -- Normal table access, not rawget — matches execution path in sui_bottombar.lua
+                local inst = fm[candidate]
+                if inst and type(inst) == "table" then
+                    local method = _probeMethod(inst)
+                    if method then
+                        fm_key    = candidate
+                        fm_method = method
+                        break
+                    end
+                end
+            end
+        end
+
+        if fm_key and not seen[fm_key] then
+            seen[fm_key] = true
+            results[#results + 1] = { fm_key = fm_key, fm_method = fm_method, title = meta.title }
+        elseif not fm_key and not seen[name] then
+            -- Installed but not currently active.
+            seen[name] = true
+            results[#results + 1] = { fm_key = name, fm_method = "onShow", title = meta.title, _inactive = true }
+        end
+    end
+
+    -- Phase 2: sweep FM for plugins not found via _meta.lua (e.g. unusual naming).
     if fm then
         for key, val in pairs(fm) do
             if type(key) == "string" and type(val) == "table"
-                    and key ~= "ui" and key ~= "file_chooser"
-                    and not _SKIP_PLUGINS[key]
-                    and not seen[key] then
-                local inst_name = rawget(val, "name")
-                if type(inst_name) == "string" and inst_name ~= "" then
-                    local method = _probeEntryMethod(val)
+                    and not _SKIP_KEYS[key] and not seen[key] then
+                local inst_name = type(val.name) == "string" and val.name or nil
+                if inst_name and inst_name ~= "" then
+                    local method = _probeMethod(val)
                     if method then
                         seen[key] = true
-                        -- Use fullname if available, fall back to name.
-                        local disp = rawget(val, "fullname") or inst_name
-                        results[#results + 1] = {
-                            fm_key    = key,
-                            fm_method = method,
-                            title     = disp,
-                        }
+                        local disp = (type(val.fullname) == "string" and val.fullname ~= "")
+                            and val.fullname or inst_name
+                        results[#results + 1] = { fm_key = key, fm_method = method, title = disp }
                     end
                 end
             end
         end
     end
 
-    table.sort(results, function(a, b)
-        return a.title:lower() < b.title:lower()
-    end)
+    table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
     return results
-end
-
--- Invalidate the disk-scan cache (call after a plugin is installed/removed at runtime).
-function QA.invalidatePluginCache()
-    _plugin_disk_cache = nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -470,29 +375,24 @@ local function _scanDispatcherActions()
     if not ok_d or not Dispatcher then return {} end
     pcall(function() Dispatcher:init() end)
 
-    -- Try to extract settingsList via upvalue inspection.
     local settingsList, dispatcher_menu_order
-    local ok_dbi, dbi = pcall(require, "debugger")
-    _ = ok_dbi and dbi  -- suppress unused warning
 
-    -- Walk upvalues of Dispatcher.registerAction to find settingsList.
     if type(Dispatcher.registerAction) == "function" then
         pcall(function()
-            local fn_idx = 1
+            local i = 1
             while true do
-                local name, val = debug.getupvalue(Dispatcher.registerAction, fn_idx)
+                local name, val = debug.getupvalue(Dispatcher.registerAction, i)
                 if not name then break end
                 if name == "settingsList"          then settingsList          = val end
                 if name == "dispatcher_menu_order" then dispatcher_menu_order = val end
-                fn_idx = fn_idx + 1
+                i = i + 1
             end
         end)
     end
 
-    -- Fallback: Dispatcher may expose the settings list directly.
     if type(settingsList) ~= "table" then
         settingsList = rawget(Dispatcher, "settingsList")
-            or rawget(Dispatcher, "settings_list")
+                   or rawget(Dispatcher, "settings_list")
     end
     if type(settingsList) ~= "table" then return {} end
 
@@ -505,7 +405,7 @@ local function _scanDispatcherActions()
         end)()
 
     local results = {}
-    for _i, action_id in ipairs(order) do
+    for _, action_id in ipairs(order) do
         local def = settingsList[action_id]
         if type(def) == "table" and def.title and def.category == "none"
                 and (def.condition == nil or def.condition == true) then
@@ -526,8 +426,8 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     local InfoMessage      = require("ui/widget/infomessage")
     local ButtonDialog     = require("ui/widget/buttondialog")
 
-    local getNonFavColl    = Config.getNonFavoritesCollections
-    local collections      = getNonFavColl and getNonFavColl() or {}
+    local getNonFavColl = Config.getNonFavoritesCollections
+    local collections   = getNonFavColl and getNonFavColl() or {}
     table.sort(collections, function(a, b) return a:lower() < b:lower() end)
 
     local cfg         = qa_id and Config.getCustomQAConfig(qa_id) or {}
@@ -571,7 +471,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         end
 
         local fields = {}
-        for _i, f in ipairs(spec.fields) do
+        for _, f in ipairs(spec.fields) do
             fields[#fields + 1] = { description = f.description, text = f.text or "", hint = f.hint }
         end
 
@@ -621,12 +521,8 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                     validate = function(inputs)
                         local p = inputs[2] ~= "" and inputs[2] or chosen_path
                         local attr = lfs.attributes(p)
-                        if not attr then
-                            return string.format(_("Folder not found:\n%s"), p)
-                        end
-                        if attr.mode ~= "directory" then
-                            return string.format(_("Path is not a folder:\n%s"), p)
-                        end
+                        if not attr then return string.format(_("Folder not found:\n%s"), p) end
+                        if attr.mode ~= "directory" then return string.format(_("Path is not a folder:\n%s"), p) end
                     end,
                     on_save = function(inputs)
                         local new_path = inputs[2] ~= "" and inputs[2] or chosen_path
@@ -640,7 +536,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
     local function openCollectionPicker()
         local buttons = {}
-        for _i, coll_name in ipairs(collections) do
+        for _, coll_name in ipairs(collections) do
             local name = coll_name
             buttons[#buttons + 1] = {{ text = name, callback = function()
                 UIManager:close(plugin._qa_coll_picker)
@@ -659,46 +555,36 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         UIManager:show(plugin._qa_coll_picker)
     end
 
-    -- Plugin picker — uses the improved disk-based scanner
     local function openPluginPicker()
-        local InfoMsg = require("ui/widget/infomessage")
-        -- Show a brief loading notice since disk scan may take a moment.
-        local loading = InfoMsg:new{ text = _("Scanning plugins…"), timeout = 0.5 }
-        UIManager:show(loading)
-        UIManager:nextTick(function()
-            UIManager:close(loading)
-            local plugin_actions = _scanAllPlugins()
-            if #plugin_actions == 0 then
-                UIManager:show(InfoMsg:new{ text = _("No plugins found."), timeout = 3 })
-                return
-            end
-            local buttons = {}
-            for _i, a in ipairs(plugin_actions) do
-                local _a = a
-                -- Mark pending (not-yet-live) plugins with a note.
-                local label = _a._pending
-                    and (_a.title .. "  (" .. _("not active") .. ")")
-                    or  _a.title
-                buttons[#buttons + 1] = {{ text = label, callback = function()
-                    UIManager:close(plugin._qa_plugin_picker)
-                    _buildSaveDialog({
-                        fields = { { description = _("Name"), text = cfg.label or _a.title, hint = _("e.g. Rakuyomi…") } },
-                        icon_default_label = _("Default (Plugin)"),
-                        on_save = function(inputs)
-                            commitQA(sanitize(inputs[1]) or _a.title,
-                                nil, nil, Config.CUSTOM_PLUGIN_ICON,
-                                _a.fm_key, _a.fm_method, nil)
-                        end,
-                    })
-                end }}
-            end
-            buttons[#buttons + 1] = {{
-                text     = _("Cancel"),
-                callback = function() UIManager:close(plugin._qa_plugin_picker) end,
-            }}
-            plugin._qa_plugin_picker = ButtonDialog:new{ buttons = buttons }
-            UIManager:show(plugin._qa_plugin_picker)
-        end)
+        local plugin_actions = _scanAllPlugins()
+        if #plugin_actions == 0 then
+            UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
+            return
+        end
+        local buttons = {}
+        for _, a in ipairs(plugin_actions) do
+            local _a = a
+            local label = _a._inactive
+                and (_a.title .. "  (" .. _("restart required") .. ")")
+                or  _a.title
+            buttons[#buttons + 1] = {{ text = label, callback = function()
+                UIManager:close(plugin._qa_plugin_picker)
+                _buildSaveDialog({
+                    fields = { { description = _("Name"), text = cfg.label or _a.title, hint = _("e.g. Rakuyomi…") } },
+                    icon_default_label = _("Default (Plugin)"),
+                    on_save = function(inputs)
+                        commitQA(sanitize(inputs[1]) or _a.title,
+                            nil, nil, Config.CUSTOM_PLUGIN_ICON, _a.fm_key, _a.fm_method, nil)
+                    end,
+                })
+            end }}
+        end
+        buttons[#buttons + 1] = {{
+            text     = _("Cancel"),
+            callback = function() UIManager:close(plugin._qa_plugin_picker) end,
+        }}
+        plugin._qa_plugin_picker = ButtonDialog:new{ buttons = buttons }
+        UIManager:show(plugin._qa_plugin_picker)
     end
 
     local function openDispatcherPicker()
@@ -708,7 +594,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             return
         end
         local buttons = {}
-        for _i, a in ipairs(actions) do
+        for _, a in ipairs(actions) do
             local _a = a
             buttons[#buttons + 1] = {{ text = _a.title, callback = function()
                 UIManager:close(plugin._qa_dispatcher_picker)
@@ -760,7 +646,7 @@ function QA.makeMenuItems(plugin)
         for _, a in ipairs(Config.ALL_ACTIONS) do
             pool[#pool + 1] = { id = a.id, is_default = true }
         end
-        for _i, qa_id in ipairs(Config.getCustomQAList()) do
+        for _, qa_id in ipairs(Config.getCustomQAList()) do
             pool[#pool + 1] = { id = qa_id, is_default = false }
         end
         table.sort(pool, function(a, b)
@@ -769,11 +655,9 @@ function QA.makeMenuItems(plugin)
         return pool
     end
 
-    -- ── Change Icons ─────────────────────────────────────────────────────────
-
     local function makeChangeIconsMenu()
         local items = {}
-        for _i, entry in ipairs(allActions()) do
+        for _, entry in ipairs(allActions()) do
             local _id         = entry.id
             local _is_default = entry.is_default
             items[#items + 1] = {
@@ -824,11 +708,9 @@ function QA.makeMenuItems(plugin)
         return items
     end
 
-    -- ── Rename ───────────────────────────────────────────────────────────────
-
     local function makeRenameMenu()
         local items = {}
-        for _i, entry in ipairs(allActions()) do
+        for _, entry in ipairs(allActions()) do
             local _id         = entry.id
             local _is_default = entry.is_default
             items[#items + 1] = {
@@ -845,41 +727,35 @@ function QA.makeMenuItems(plugin)
                         input      = current_label,
                         input_hint = _("New name…"),
                         buttons = {{
-                            {
-                                text     = _("Cancel"),
-                                callback = function() UIManager:close(dlg) end,
-                            },
-                            {
-                                text         = _("Reset"),
-                                enabled_func = function()
-                                    return _is_default and QA.getDefaultActionLabel(_id) ~= nil
-                                end,
-                                callback = function()
-                                    UIManager:close(dlg)
-                                    QA.setDefaultActionLabel(_id, nil)
-                                    plugin:_rebuildAllNavbars()
-                                end,
-                            },
-                            {
-                                text             = _("Save"),
-                                is_enter_default = true,
-                                callback = function()
-                                    local new_name = Config.sanitizeLabel(dlg:getInputText())
-                                    UIManager:close(dlg)
-                                    if not new_name then return end
-                                    if _is_default then
-                                        QA.setDefaultActionLabel(_id, new_name)
-                                    else
-                                        local c = Config.getCustomQAConfig(_id)
-                                        Config.saveCustomQAConfig(_id, new_name,
-                                            c.path, c.collection, c.icon,
-                                            c.plugin_key, c.plugin_method, c.dispatcher_action)
-                                        Config.invalidateTabsCache()
-                                    end
-                                    QA.invalidateCustomQACache()
-                                    plugin:_rebuildAllNavbars()
-                                end,
-                            },
+                            { text = _("Cancel"),
+                              callback = function() UIManager:close(dlg) end },
+                            { text         = _("Reset"),
+                              enabled_func = function()
+                                  return _is_default and QA.getDefaultActionLabel(_id) ~= nil
+                              end,
+                              callback = function()
+                                  UIManager:close(dlg)
+                                  QA.setDefaultActionLabel(_id, nil)
+                                  plugin:_rebuildAllNavbars()
+                              end },
+                            { text             = _("Save"),
+                              is_enter_default = true,
+                              callback = function()
+                                  local new_name = Config.sanitizeLabel(dlg:getInputText())
+                                  UIManager:close(dlg)
+                                  if not new_name then return end
+                                  if _is_default then
+                                      QA.setDefaultActionLabel(_id, new_name)
+                                  else
+                                      local c = Config.getCustomQAConfig(_id)
+                                      Config.saveCustomQAConfig(_id, new_name,
+                                          c.path, c.collection, c.icon,
+                                          c.plugin_key, c.plugin_method, c.dispatcher_action)
+                                      Config.invalidateTabsCache()
+                                  end
+                                  QA.invalidateCustomQACache()
+                                  plugin:_rebuildAllNavbars()
+                              end },
                         }},
                     }
                     UIManager:show(dlg)
@@ -890,10 +766,7 @@ function QA.makeMenuItems(plugin)
         return items
     end
 
-    -- ── Top-level menu ───────────────────────────────────────────────────────
-
     local items = {}
-
     items[#items + 1] = {
         text               = _("Change Icons"),
         sub_item_table_func = makeChangeIconsMenu,
@@ -923,13 +796,13 @@ function QA.makeMenuItems(plugin)
     items[#items].separator = true
 
     local sorted_qa = {}
-    for _i, qa_id in ipairs(qa_list) do
+    for _, qa_id in ipairs(qa_list) do
         local cfg = Config.getCustomQAConfig(qa_id)
         sorted_qa[#sorted_qa + 1] = { id = qa_id, label = cfg.label or qa_id }
     end
     table.sort(sorted_qa, function(a, b) return a.label:lower() < b.label:lower() end)
 
-    for _i, entry in ipairs(sorted_qa) do
+    for _, entry in ipairs(sorted_qa) do
         local _id = entry.id
         items[#items + 1] = {
             text_func = function()
@@ -938,7 +811,7 @@ function QA.makeMenuItems(plugin)
                 if c.dispatcher_action and c.dispatcher_action ~= "" then
                     desc = "⊕ " .. c.dispatcher_action
                 elseif c.plugin_key and c.plugin_key ~= "" then
-                    desc = "⬡ " .. c.plugin_key .. ":" .. (c.plugin_method or "?")
+                    desc = "⬡ " .. c.plugin_key
                 elseif c.collection and c.collection ~= "" then
                     desc = "⊞ " .. c.collection
                 else
@@ -954,7 +827,7 @@ function QA.makeMenuItems(plugin)
                         local c = Config.getCustomQAConfig(_id)
                         local desc
                         if c.plugin_key and c.plugin_key ~= "" then
-                            desc = "⬡ " .. c.plugin_key .. ":" .. (c.plugin_method or "?")
+                            desc = "⬡ " .. c.plugin_key
                         elseif c.collection and c.collection ~= "" then
                             desc = "⊞ " .. c.collection
                         else
@@ -995,98 +868,78 @@ function QA.makeMenuItems(plugin)
 end
 
 -- ---------------------------------------------------------------------------
--- Tab-position helpers — assign a plugin or dispatcher action directly to a tab
+-- Tab-position helpers
 -- ---------------------------------------------------------------------------
 
 function QA.quickAddPluginToTab(plugin, pos, fm_key, fm_method, title)
-    local sanitize = Config.sanitizeLabel
-    local label = sanitize(title) or "Plugin"
-
+    local label = Config.sanitizeLabel(title) or "Plugin"
     local qa_id = Config.nextCustomQAId()
-    local list = Config.getCustomQAList()
+    local list  = Config.getCustomQAList()
     list[#list + 1] = qa_id
     Config.saveCustomQAList(list)
     Config.saveCustomQAConfig(qa_id, label, nil, nil,
         Config.CUSTOM_PLUGIN_ICON, fm_key, fm_method, nil)
-
     local tabs = Config.loadTabConfig()
     if pos >= 1 and pos <= #tabs then
         tabs[pos] = qa_id
         Config.saveTabConfig(tabs)
     end
-
     QA.invalidateCustomQACache()
     plugin:_rebuildAllNavbars()
 end
 
 function QA.quickAddDispatcherToTab(plugin, pos, action_id, title)
-    local sanitize = Config.sanitizeLabel
-    local label = sanitize(title) or "Action"
-
+    local label = Config.sanitizeLabel(title) or "Action"
     local qa_id = Config.nextCustomQAId()
-    local list = Config.getCustomQAList()
+    local list  = Config.getCustomQAList()
     list[#list + 1] = qa_id
     Config.saveCustomQAList(list)
     Config.saveCustomQAConfig(qa_id, label, nil, nil,
         Config.CUSTOM_DISPATCHER_ICON, nil, nil, action_id)
-
     local tabs = Config.loadTabConfig()
     if pos >= 1 and pos <= #tabs then
         tabs[pos] = qa_id
         Config.saveTabConfig(tabs)
     end
-
     QA.invalidateCustomQACache()
     plugin:_rebuildAllNavbars()
 end
 
--- Show a plugin picker that directly assigns to a tab position
 function QA.showPluginPickerForTab(plugin, pos)
     local ButtonDialog = require("ui/widget/buttondialog")
     local InfoMessage  = require("ui/widget/infomessage")
-
-    -- Show loading notice while scanning.
-    local loading = InfoMessage:new{ text = _("Scanning plugins…"), timeout = 0.5 }
-    UIManager:show(loading)
-    UIManager:nextTick(function()
-        UIManager:close(loading)
-        local plugin_actions = _scanAllPlugins()
-        if #plugin_actions == 0 then
-            UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
-            return
-        end
-
-        local buttons = {}
-        for _i, a in ipairs(plugin_actions) do
-            local _a = a
-            local label = _a._pending
-                and (_a.title .. "  (" .. _("not active") .. ")")
-                or  _a.title
-            buttons[#buttons + 1] = {{ text = label, callback = function()
-                UIManager:close(plugin._qa_tab_plugin_picker)
-                QA.quickAddPluginToTab(plugin, pos, _a.fm_key, _a.fm_method, _a.title)
-            end }}
-        end
-        buttons[#buttons + 1] = {{ text = _("Cancel"),
-            callback = function() UIManager:close(plugin._qa_tab_plugin_picker) end }}
-        plugin._qa_tab_plugin_picker = ButtonDialog:new{ buttons = buttons }
-        UIManager:show(plugin._qa_tab_plugin_picker)
-    end)
+    local plugin_actions = _scanAllPlugins()
+    if #plugin_actions == 0 then
+        UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
+        return
+    end
+    local buttons = {}
+    for _, a in ipairs(plugin_actions) do
+        local _a = a
+        local label = _a._inactive
+            and (_a.title .. "  (" .. _("restart required") .. ")")
+            or  _a.title
+        buttons[#buttons + 1] = {{ text = label, callback = function()
+            UIManager:close(plugin._qa_tab_plugin_picker)
+            QA.quickAddPluginToTab(plugin, pos, _a.fm_key, _a.fm_method, _a.title)
+        end }}
+    end
+    buttons[#buttons + 1] = {{ text = _("Cancel"),
+        callback = function() UIManager:close(plugin._qa_tab_plugin_picker) end }}
+    plugin._qa_tab_plugin_picker = ButtonDialog:new{ buttons = buttons }
+    UIManager:show(plugin._qa_tab_plugin_picker)
 end
 
--- Show a dispatcher action picker that directly assigns to a tab position
 function QA.showDispatcherPickerForTab(plugin, pos)
     local ButtonDialog = require("ui/widget/buttondialog")
     local InfoMessage  = require("ui/widget/infomessage")
-
     local actions = _scanDispatcherActions()
     if #actions == 0 then
         UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
         return
     end
-
     local buttons = {}
-    for _i, a in ipairs(actions) do
+    for _, a in ipairs(actions) do
         local _a = a
         buttons[#buttons + 1] = {{ text = _a.title, callback = function()
             UIManager:close(plugin._qa_tab_dispatcher_picker)

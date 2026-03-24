@@ -858,10 +858,6 @@ local function _executeInPlace(action_id, plugin, fm)
             showUnavailable(_("BookFusion not available. Make sure it is linked."))
         end
 
-        if ok_rui and ReaderUI and ReaderUI.instance then
-            _bb_ui = ReaderUI.instance
-        end
-        M.showBookmarkBrowserSourceDialog(_bb_ui)
 
     elseif action_id:match("^custom_qa_%d+$") then
         local cfg = Config.getCustomQAConfig(action_id)
