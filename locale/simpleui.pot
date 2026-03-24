@@ -660,13 +660,6 @@ msgstr ""
 
 msgid "Bookmarks"
 
-msgid "BookFusion"
-msgstr ""
-
-msgid "BookFusion not available. Make sure it is linked."
-msgstr ""
-msgstr ""
-
 msgid "Bottom"
 msgstr ""
 

@@ -183,7 +183,7 @@ end
 --
 -- KOReader's plugin loader stores each plugin on the FileManager (and
 -- ReaderUI) instance under the plugin's `name` field from _meta.lua.
--- For example: _meta.lua { name = "bookfusion" } → fm.bookfusion = instance
+-- For example: _meta.lua { name = "calibre" } → fm.calibre = instance
 --
 -- We scan the live FM instance first (most reliable), then supplement with
 -- disk-discovered plugins from _meta.lua for anything not yet active.

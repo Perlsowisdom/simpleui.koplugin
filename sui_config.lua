@@ -394,6 +394,10 @@ function M.loadTabConfig()
                 logger.warn("simpleui: loadTabConfig: ignoring unknown tab id: " .. tostring(id))
             end
         end
+        -- If any unknown IDs were filtered out, save the cleaned list
+        if #result < #cfg then
+            M.saveTabConfig(result)
+        end
     else
         for i = 1, M.DEFAULT_NUM_TABS do
             result[i] = M.DEFAULT_TABS[i] or M.ALL_ACTIONS[2].id
