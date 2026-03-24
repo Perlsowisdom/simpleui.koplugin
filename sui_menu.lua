@@ -293,14 +293,21 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                         existing_plugin_keys[c.plugin_key] = qa_id
                     end
                 end
+                -- Check limit before creating new plugin QAs
+                local current_count = #getCustomQAList()
                 for _i, plug in ipairs(plugin_list) do
                     local existing_id = existing_plugin_keys[plug.name]
                     if not existing_id then
+                        -- Check if we're at the limit before creating
+                        if current_count >= MAX_CUSTOM_QA then
+                            break -- Stop creating once we hit the limit
+                        end
                         -- Create a new custom QA for this plugin.
                         local qa_id = Config.nextCustomQAId()
                         local list  = getCustomQAList()
                         list[#list+1] = qa_id
                         saveCustomQAList(list)
+                        current_count = current_count + 1
                         Config.saveCustomQAConfig(qa_id, plug.title, nil, nil,
                             CUSTOM_PLUGIN_ICON, plug.name, "onShow", nil)
                         QA_mod.invalidateCustomQACache()
@@ -605,7 +612,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                         for _i, item in ipairs(sort_items) do
                             if     item.orig_item == SEP_LEFT  then current_side = "left"
                             elseif item.orig_item == SEP_RIGHT then current_side = "right"
-                            elseif current_side == "left"  then new_left[#new_left + 1] = item.orig_item;  cfg.side[item.orig_item] = "left"
+                            elseif current_side == "left"  then new_left[#new_left + 1]   = item.orig_item;  cfg.side[item.orig_item] = "left"
                             elseif current_side == "right" then new_right[#new_right + 1] = item.orig_item; cfg.side[item.orig_item] = "right"
                             end
                         end
@@ -1336,7 +1343,9 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                 end
                                 if #sort_items < 2 then
                                     UIManager:show(InfoMessage():new{
-                                        text = _("Enable at least 2 modules to arrange."), timeout = 2 })
+                                        text = _("Enable at least 2 modules to arrange."),
+                                        timeout = 3,
+                                    })
                                     return
                                 end
                                 UIManager:show(SortWidget():new{
@@ -1462,7 +1471,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                             separator = true,
                             callback  = function()
                                 local ConfirmBox = require("ui/widget/confirmbox")
-                                UIManager:show(ConfirmBox:new{
+                                UIManager:show(ConfirmBox():new{
                                     text    = _("Reset all scales to default (100%)? This cannot be undone."),
                                     ok_text = _("Reset"),
                                     ok_callback = function()
@@ -1492,8 +1501,7 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
         return {
             {
                 text_func    = function()
-                    local on = G_reader_settings:nilOrTrue("navbar_homescreen_enabled")
-                    return _("Home Screen") .. " — " .. (on and _("On") or _("Off"))
+                    return _("Home Screen") .. " — " .. (G_reader_settings:nilOrTrue("navbar_homescreen_enabled") and _("On") or _("Off"))
                 end,
                 checked_func = function() return G_reader_settings:nilOrTrue("navbar_homescreen_enabled") end,
                 callback     = function()
@@ -1642,9 +1650,12 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                             {
                                                 text           = _("Show label"),
                                                 checked_func   = function() return FC.getShowName() end,
+                                                enabled_func   = function() return FC.getShowName() end,
                                                 keep_menu_open = true,
-                                                separator      = true,
-                                                callback       = function() FC.setShowName(not FC.getShowName()); _refreshFC() end,
+                                                callback       = function()
+                                                    FC.setShowName(not FC.getShowName())
+                                                    _refreshFC()
+                                                end,
                                             },
                                             {
                                                 text           = _("Transparent"),
@@ -1662,7 +1673,10 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                                 checked_func   = function() return FC.getLabelPosition() == "top" end,
                                                 enabled_func   = function() return FC.getShowName() end,
                                                 keep_menu_open = true,
-                                                callback       = function() FC.setLabelPosition("top"); _refreshFC() end,
+                                                callback       = function()
+                                                    FC.setLabelPosition("top")
+                                                    _refreshFC()
+                                                end,
                                             },
                                             {
                                                 text           = _("Center"),
@@ -1670,7 +1684,10 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                                 checked_func   = function() return FC.getLabelPosition() == "center" end,
                                                 enabled_func   = function() return FC.getShowName() end,
                                                 keep_menu_open = true,
-                                                callback       = function() FC.setLabelPosition("center"); _refreshFC() end,
+                                                callback       = function()
+                                                    FC.setLabelPosition("center")
+                                                    _refreshFC()
+                                                end,
                                             },
                                             {
                                                 text           = _("Bottom"),
@@ -1678,27 +1695,38 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                                 checked_func   = function() return FC.getLabelPosition() == "bottom" end,
                                                 enabled_func   = function() return FC.getShowName() end,
                                                 keep_menu_open = true,
-                                                callback       = function() FC.setLabelPosition("bottom"); _refreshFC() end,
+                                                callback       = function()
+                                                    FC.setLabelPosition("bottom")
+                                                    _refreshFC()
+                                                end,
                                             },
                                         },
                                     },
                                     {
-                                        text         = _("Badge"),
-                                        enabled_func = function() return FC.isEnabled() end,
+                                        text           = _("Badge"),
+                                        enabled_func   = function() return FC.isEnabled() end,
                                         sub_item_table = {
                                             {
                                                 text           = _("Top"),
                                                 radio          = true,
                                                 checked_func   = function() return FC.getBadgePosition() == "top" end,
+                                                enabled_func   = function() return FC.getShowName() end,
                                                 keep_menu_open = true,
-                                                callback       = function() FC.setBadgePosition("top"); _refreshFC() end,
+                                                callback       = function()
+                                                    FC.setBadgePosition("top")
+                                                    _refreshFC()
+                                                end,
                                             },
                                             {
                                                 text           = _("Bottom"),
                                                 radio          = true,
                                                 checked_func   = function() return FC.getBadgePosition() == "bottom" end,
+                                                enabled_func   = function() return FC.getShowName() end,
                                                 keep_menu_open = true,
-                                                callback       = function() FC.setBadgePosition("bottom"); _refreshFC() end,
+                                                callback       = function()
+                                                    FC.setBadgePosition("bottom")
+                                                    _refreshFC()
+                                                end,
                                             },
                                         },
                                     },
@@ -1708,7 +1736,10 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                                         enabled_func   = function() return FC.isEnabled() end,
                                         keep_menu_open = true,
                                         separator      = true,
-                                        callback       = function() FC.setHideUnderline(not FC.getHideUnderline()); _refreshFC() end,
+                                        callback       = function()
+                                            FC.setHideUnderline(not FC.getHideUnderline())
+                                            _refreshFC()
+                                        end,
                                     },
                                 }
                             end,
