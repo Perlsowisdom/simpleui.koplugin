@@ -98,6 +98,31 @@ M.NAVPAGER_CENTER_TABS   = 4
 
 M.DEFAULT_TABS = { "home", "collections", "history", "continue", "favorites" }
 
+-- Plugin entry point methods to try, in order of preference.
+-- Shared between sui_quickactions.lua (_PROBE_METHODS) and sui_bottombar.lua.
+-- This ensures consistent plugin discovery and execution across the codebase.
+M.PLUGIN_ENTRY_METHODS = {
+    "onShow",
+    "show",
+    "open",
+    "onOpen",
+    "launch",
+    "onSearchBooks",
+    "onShowStore",
+    "onShowTextEditor",
+    "onShowWallabag",
+    "onShowCalendar",
+    "onShowCalibre",
+    "onShowDropbox",
+    "onShowEvernote",
+    "onShowZotero",
+    "onShowPlugin",
+    "onShowStatistics",
+}
+
+-- Fallback for unknown plugins: try all methods matching this pattern
+M.PLUGIN_ENTRY_PATTERNS = { "^onShow", "^onOpen", "^onLaunch" }
+
 -- Fallback tab IDs used when a duplicate 'home' is detected.
 M.NON_HOME_DEFAULTS = {}
 for _i, id in ipairs(M.DEFAULT_TABS) do
@@ -154,7 +179,7 @@ function M.getTopbarConfig()
     local cfg = { side = {}, order_left = {}, order_right = {}, show = {}, order = {} }
     if type(raw) == "table" then
         if type(raw.side) == "table" then
-            for k, v in pairs(raw.side) do cfg.side[k] = v end
+            for k, v in pairs(raw.side) do cfg.side[k] = v and "right" or "hidden" end
         end
         if type(raw.order_left) == "table" then
             for _i, v in ipairs(raw.order_left) do cfg.order_left[#cfg.order_left + 1] = v end

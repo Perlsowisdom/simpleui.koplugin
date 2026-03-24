@@ -879,12 +879,12 @@ local function _executeInPlace(action_id, plugin, fm)
                 if cfg.plugin_method and cfg.plugin_method ~= "" then
                     methods_to_try[#methods_to_try+1] = cfg.plugin_method
                 end
-                for _, m in ipairs({"onShow", "show", "open", "onOpen", "launch", "onSearchBooks", "onShowStore", "onShowTextEditor"}) do
+                for _, m in ipairs({\"onShow\", \"show\", \"open\", \"onOpen\", \"launch\", \"onSearchBooks\", \"onShowStore\", \"onShowTextEditor\", \"onShowWallabag\", \"onShowCalendar\", \"onShowCalibre\", \"onShowDropbox\", \"onShowEvernote\", \"onShowZotero\", \"onShowPlugin\", \"onShowStatistics\"}) do
                     methods_to_try[#methods_to_try+1] = m
                 end
                 local called = false
                 for _, m in ipairs(methods_to_try) do
-                    if type(plugin_inst[m]) == "function" then
+                    if type(plugin_inst[m]) == \"function\" then
                         local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
                         if not ok then
                             showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
@@ -1144,12 +1144,12 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
                     if cfg.plugin_method and cfg.plugin_method ~= "" then
                         methods_to_try[#methods_to_try+1] = cfg.plugin_method
                     end
-                    for _, m in ipairs({"onShow", "show", "open", "onOpen", "launch", "onSearchBooks", "onShowStore", "onShowTextEditor"}) do
+                    for _, m in ipairs({\"onShow\", \"show\", \"open\", \"onOpen\", \"launch\", \"onSearchBooks\", \"onShowStore\", \"onShowTextEditor\", \"onShowWallabag\", \"onShowCalendar\", \"onShowCalibre\", \"onShowDropbox\", \"onShowEvernote\", \"onShowZotero\", \"onShowPlugin\", \"onShowStatistics\"}) do
                         methods_to_try[#methods_to_try+1] = m
                     end
                     local called = false
                     for _, m in ipairs(methods_to_try) do
-                        if type(plugin_inst[m]) == "function" then
+                        if type(plugin_inst[m]) == \"function\" then
                             local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
                             if not ok then
                                 showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
