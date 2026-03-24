@@ -22,6 +22,16 @@ local _               = require("gettext")
 
 local Config = require("sui_config")
 
+-- Debug flag — enable by uncommenting
+local _DEBUG = true
+
+-- Debug logging helper
+local function _debug(...)
+    if _DEBUG then
+        logger.warn("[simpleui:plugin-debug]", ...)
+    end
+end
+
 local M = {}
 
 -- Bar colors.
@@ -872,12 +882,36 @@ local function _executeInPlace(action_id, plugin, fm)
             else
                 showUnavailable(_("Dispatcher not available."))
             end
-        elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
+        elseif cfg.plugin_key and cfg.plugin_key ~= "" then
             local plugin_inst = fm and fm[cfg.plugin_key]
-            if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
-                local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
-                if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
+            _debug("plugin execution: looking for '", cfg.plugin_key, "' in fm -> ", type(plugin_inst))
+            if plugin_inst then
+                local methods_to_try = {}
+                if cfg.plugin_method and cfg.plugin_method ~= "" then
+                    _debug("plugin execution: using saved method '", cfg.plugin_method, "'")
+                    methods_to_try[#methods_to_try+1] = cfg.plugin_method
+                end
+                for _i, m in ipairs(Config.PLUGIN_ENTRY_METHODS) do
+                    methods_to_try[#methods_to_try+1] = m
+                end
+                local called = false
+                for _i, m in ipairs(methods_to_try) do
+                    if type(plugin_inst[m]) == "function" then
+                        _debug("plugin execution: calling method '", m, "'")
+                        local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
+                        if not ok then
+                            _debug("plugin execution: ERROR - ", tostring(err))
+                            showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
+                        end
+                        called = true; break
+                    end
+                end
+                if not called then
+                    _debug("plugin execution: no callable method found")
+                    showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
+                end
             else
+                _debug("plugin execution: plugin '", cfg.plugin_key, "' not found in fm")
                 showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
             end
         end
