@@ -488,7 +488,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             Config.saveCustomQAList(list)
         end
         Config.saveCustomQAConfig(final_id, final_label, path, coll,
-            chosen_icon or default_icon, fm_key, fm_method, dispatcher_action)
+            chosen_icon or default_icon, (fm_key or ""):match("^%s*(.-)%s*$"), (fm_method or ""):match("^%s*(.-)%s*$"), dispatcher_action)
         QA.invalidateCustomQACache()
         plugin:_rebuildAllNavbars()
         if on_done then on_done() end
