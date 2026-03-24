@@ -118,6 +118,7 @@ M.ALL_ACTIONS = {
     { id = "bookmark_browser", label = _("Bookmarks"),        icon = M.ICON.ko_bookmark },
     { id = "wifi_toggle",      label = _("Wi-Fi"),            icon = M.ICON.ko_wifi_on  },
     { id = "frontlight",       label = _("Brightness"),       icon = M.ICON.frontlight  },
+    { id = "stats_calendar",   label = _("Stats"),            icon = M.ICON.stats       },
     { id = "bookfusion",       label = _("BookFusion"),      icon = M.ICON.bookfusion  },
     { id = "power",            label = _("Power"),            icon = M.ICON.power       },
 }
