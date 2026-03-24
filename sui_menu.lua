@@ -290,13 +290,13 @@ SimpleUIPlugin.addToMainMenu = function(self, menu_items)
                 for _i, qa_id in ipairs(getCustomQAList()) do
                     local c = getCustomQAConfig(qa_id)
                     if c.plugin_key and c.plugin_key ~= "" then
-                        existing_plugin_keys[c.plugin_key] = qa_id
+                        existing_plugin_keys[c.plugin_key:match("^%s*(.-)%s*$")] = qa_id
                     end
                 end
                 -- Check limit before creating new plugin QAs
                 local current_count = #getCustomQAList()
                 for _i, plug in ipairs(plugin_list) do
-                    local existing_id = existing_plugin_keys[plug.name]
+                    local existing_id = existing_plugin_keys[plug.name:match("^%s*(.-)%s*$")]
                     if not existing_id then
                         -- Check if we're at the limit before creating
                         if current_count >= MAX_CUSTOM_QA then
