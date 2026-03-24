@@ -846,17 +846,19 @@ function QA.makeMenuItems(plugin)
                     text     = _("Delete"),
                     callback = function()
                         local c = Config.getCustomQAConfig(_id)
-                        UIManager:show(ConfirmBox:new{
+                        local confirm_box = ConfirmBox:new{
                             text        = string.format(_("Delete quick action \"%s\"?"), c.label),
                             ok_text     = _("Delete"),
                             cancel_text = _("Cancel"),
                             ok_callback = function()
+                                UIManager:close(confirm_box)
                                 Config.deleteCustomQA(_id)
                                 Config.invalidateTabsCache()
                                 QA.invalidateCustomQACache()
                                 plugin:_rebuildAllNavbars()
                             end,
-                        })
+                        }
+                        UIManager:show(confirm_box)
                     end,
                 }
                 return sub
