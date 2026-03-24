@@ -851,7 +851,7 @@ local function _executeInPlace(action_id, plugin, fm)
     elseif action_id == "bookfusion" then
         -- Try FileManager first (home screen), then ReaderUI (while reading)
         local ui = fm or plugin.ui
-        local bf = ui and ui.menu_items and ui.menu_items.bookfusion
+        local bf = fm and fm["bookfusion"]
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
@@ -1105,7 +1105,7 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
     elseif action_id == "bookfusion" then
         -- Try FileManager first (home screen), then ReaderUI (while reading)
         local ui = fm or plugin.ui
-        local bf = ui and ui.menu_items and ui.menu_items.bookfusion
+        local bf = fm and fm["bookfusion"]
         if bf and type(bf.onSearchBooks) == "function" then
             bf:onSearchBooks()
         else
