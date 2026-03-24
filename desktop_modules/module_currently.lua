@@ -55,10 +55,57 @@ local _CLR_DARK = Blitbuffer.COLOR_BLACK
 
 local TITLE_MAX_LEN = 60
 
+-- UTF-8 character count: correctly handles multi-byte characters (Chinese, emoji, etc.)
+local function utf8CharCount(s)
+    if not s then return 0 end
+    local count = 0
+    local i = 1
+    while i <= #s do
+        local byte = s:byte(i)
+        -- Calculate the byte length of the current UTF-8 character
+        local charLen = 1
+        if byte >= 240 then
+            charLen = 4  -- 11110xxx
+        elseif byte >= 224 then
+            charLen = 3  -- 1110xxxx
+        elseif byte >= 192 then
+            charLen = 2  -- 110xxxxx
+        end
+        count = count + 1
+        i = i + charLen
+    end
+    return count
+end
+
+-- UTF-8 substring: truncate by character count, avoid cutting multi-byte characters
+local function utf8Sub(s, maxChars)
+    if not s or maxChars <= 0 then return "" end
+    local count = 0
+    local i = 1
+    while i <= #s do
+        local byte = s:byte(i)
+        -- Calculate the byte length of the current UTF-8 character
+        local charLen = 1
+        if byte >= 240 then
+            charLen = 4
+        elseif byte >= 224 then
+            charLen = 3
+        elseif byte >= 192 then
+            charLen = 2
+        end
+        count = count + 1
+        if count > maxChars then
+            return s:sub(1, i - 1)
+        end
+        i = i + charLen
+    end
+    return s
+end
+
 local function truncateTitle(title)
     if not title then return title end
-    if #title > TITLE_MAX_LEN then
-        return title:sub(1, TITLE_MAX_LEN) .. "…"
+    if utf8CharCount(title) > TITLE_MAX_LEN then
+        return utf8Sub(title, TITLE_MAX_LEN) .. "…"
     end
     return title
 end

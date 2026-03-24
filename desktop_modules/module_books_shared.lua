@@ -131,6 +131,30 @@ end
 -- ---------------------------------------------------------------------------
 -- coverPlaceholder
 -- ---------------------------------------------------------------------------
+-- Helper function to safely extract first n UTF-8 characters for placeholder text
+local function safeFirstChars(s, n)
+    if not s or n <= 0 then return "" end
+    local chars = {}
+    local i = 1
+    local count = 0
+    while i <= #s and count < n do
+        local byte = s:byte(i)
+        -- Calculate the byte length of the current UTF-8 character
+        local charLen = 1
+        if byte >= 240 then
+            charLen = 4
+        elseif byte >= 224 then
+            charLen = 3
+        elseif byte >= 192 then
+            charLen = 2
+        end
+        chars[#chars + 1] = s:sub(i, i + charLen - 1)
+        count = count + 1
+        i = i + charLen
+    end
+    return table.concat(chars)
+end
+
 function SH.coverPlaceholder(title, w, h)
     return FrameContainer:new{
         bordersize = 1, color = _CLR_COVER_BORDER,
@@ -139,7 +163,7 @@ function SH.coverPlaceholder(title, w, h)
         require("ui/widget/container/centercontainer"):new{
             dimen = Geom:new{ w = w, h = h },
             require("ui/widget/textwidget"):new{
-                text = (title or "?"):sub(1, 2):upper(),
+                text = safeFirstChars(title or "?", 2):upper(),
                 face = Font:getFace("smallinfofont", Screen:scaleBySize(18)),
                 bold = true,
             },

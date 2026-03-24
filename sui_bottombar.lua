@@ -726,7 +726,6 @@ local function _isInPlaceAction(action_id)
     if action_id == "frontlight"       then return true end
     if action_id == "power"            then return true end
     if action_id == "stats_calendar"   then return true end
-    if action_id == "bookfusion"       then return true end
     if action_id == "bookmark_browser" then return true end
     if action_id:match("^custom_qa_%d+$") then
         local cfg = Config.getCustomQAConfig(action_id)
@@ -734,7 +733,7 @@ local function _isInPlaceAction(action_id)
         -- or call a plugin method without opening a new fullscreen widget).
         -- collection and path navigate away — those must close the HS.
         if cfg.dispatcher_action and cfg.dispatcher_action ~= "" then return true end
-        if cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then return true end
+        if cfg.plugin_key and cfg.plugin_key ~= "" then return true end
     end
     return false
 end
@@ -848,16 +847,15 @@ local function _executeInPlace(action_id, plugin, fm)
         end)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
 
-    elseif action_id == "bookfusion" then
-        -- Try FileManager first (home screen), then ReaderUI (while reading)
-        local ui = fm or plugin.ui
-        local bf = fm and fm["bookfusion"]
-        if bf and type(bf.onSearchBooks) == "function" then
-            bf:onSearchBooks()
-        else
-            showUnavailable(_("BookFusion not available. Make sure it is linked."))
+    elseif action_id == "bookmark_browser" then
+        -- Show the source-selection ButtonDialog floating above the homescreen.
+        -- Same pattern as frontlight: non-fullscreen widget, HS stays visible.
+        local _bb_ui = fm
+        local ok_rui, ReaderUI = pcall(require, "apps/reader/readerui")
+        if ok_rui and ReaderUI and ReaderUI.instance then
+            _bb_ui = ReaderUI.instance
         end
-
+        M.showBookmarkBrowserSourceDialog(_bb_ui)
 
     elseif action_id:match("^custom_qa_%d+$") then
         local cfg = Config.getCustomQAConfig(action_id)
@@ -874,11 +872,29 @@ local function _executeInPlace(action_id, plugin, fm)
             else
                 showUnavailable(_("Dispatcher not available."))
             end
-        elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
-            local plugin_inst = fm and fm.menu_items and fm[cfg.plugin_key]
-            if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
-                local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
-                if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
+        elseif cfg.plugin_key and cfg.plugin_key ~= "" then
+            local plugin_inst = fm and fm[cfg.plugin_key]
+            if plugin_inst then
+                local methods_to_try = {}
+                if cfg.plugin_method and cfg.plugin_method ~= "" then
+                    methods_to_try[#methods_to_try+1] = cfg.plugin_method
+                end
+                for _, m in ipairs({"onShow", "show", "open", "onOpen", "launch", "onSearchBooks", "onShowStore", "onShowTextEditor"}) do
+                    methods_to_try[#methods_to_try+1] = m
+                end
+                local called = false
+                for _, m in ipairs(methods_to_try) do
+                    if type(plugin_inst[m]) == "function" then
+                        local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
+                        if not ok then
+                            showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
+                        end
+                        called = true; break
+                    end
+                end
+                if not called then
+                    showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
+                end
             else
                 showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
             end
@@ -1097,16 +1113,7 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
             UIManager:broadcastEvent(require("ui/event"):new("ShowCalendarView"))
         end)
         if not ok then showUnavailable(_("Statistics plugin not available.")) end
-
-    elseif action_id == "bookfusion" then
-        -- Try FileManager first (home screen), then ReaderUI (while reading)
-        local ui = fm or plugin.ui
-        local bf = fm and fm["bookfusion"]
-        if bf and type(bf.onSearchBooks) == "function" then
-            bf:onSearchBooks()
-        else
-            showUnavailable(_("BookFusion not available. Make sure it is linked."))
-        end
+        return
 
     elseif action_id == "wifi_toggle" then
         M.doWifiToggle(plugin); return
@@ -1130,11 +1137,29 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
                 else
                     showUnavailable(_("Dispatcher not available."))
                 end
-            elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
-                local plugin_inst = fm and fm.menu_items and fm[cfg.plugin_key]
-                if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
-                    local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
-                    if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
+            elseif cfg.plugin_key and cfg.plugin_key ~= "" then
+                local plugin_inst = fm and fm[cfg.plugin_key]
+                if plugin_inst then
+                    local methods_to_try = {}
+                    if cfg.plugin_method and cfg.plugin_method ~= "" then
+                        methods_to_try[#methods_to_try+1] = cfg.plugin_method
+                    end
+                    for _, m in ipairs({"onShow", "show", "open", "onOpen", "launch", "onSearchBooks", "onShowStore", "onShowTextEditor"}) do
+                        methods_to_try[#methods_to_try+1] = m
+                    end
+                    local called = false
+                    for _, m in ipairs(methods_to_try) do
+                        if type(plugin_inst[m]) == "function" then
+                            local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
+                            if not ok then
+                                showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
+                            end
+                            called = true; break
+                        end
+                    end
+                    if not called then
+                        showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
+                    end
                 else
                     showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
                 end
