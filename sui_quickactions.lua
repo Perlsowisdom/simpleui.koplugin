@@ -109,7 +109,7 @@ function QA.getCustomQAValid()
     if not _cqa_valid_cache then
         local list = Config.getCustomQAList()
         local s = {}
-        for _, id in ipairs(list) do s[id] = true end
+        for _i, id in ipairs(list) do s[id] = true end
         _cqa_valid_cache = s
     end
     return _cqa_valid_cache
@@ -159,7 +159,7 @@ function QA.showIconPicker(current_icon, on_select, default_label, _picker_handl
             enabled = false,
         }}
     else
-        for _, icon in ipairs(icons) do
+        for _i, icon in ipairs(icons) do
             local p = icon
             buttons[#buttons + 1] = {{
                 text     = p.label .. ((current_icon == p.path) and "  ✓" or ""),
@@ -203,28 +203,12 @@ local _SKIP_KEYS = {
 }
 
 -- Ordered probe list — first match wins.
-local _PROBE_METHODS = {
-    "onShow",
-    "show",
-    "open",
-    "onOpen",
-    "launch",
-    "onSearchBooks",
-    "onShowStore",
-    "onShowTextEditor",
-    "onShowWallabag",
-    "onShowCalendar",
-    "onShowCalibre",
-    "onShowDropbox",
-    "onShowEvernote",
-    "onShowZotero",
-    "onShowPlugin",
-    "onShowStatistics",
-}
+-- Uses the shared constant from Config to match execution.
+local _PROBE_METHODS = Config.PLUGIN_ENTRY_METHODS
 
 local function _probeMethod(inst)
     if type(inst) ~= "table" then return nil end
-    for _, m in ipairs(_PROBE_METHODS) do
+    for _i, m in ipairs(_PROBE_METHODS) do
         if type(inst[m]) == "function" then return m end
     end
     -- Generic sweep for any remaining onShow*/onOpen*/onLaunch*.
@@ -313,13 +297,13 @@ local function _scanAllPlugins()
     local seen    = {}
 
     -- Phase 1: for each disk-discovered plugin, find its live FM instance.
-    for _, meta in ipairs(_getDiskPlugins()) do
+    for _i, meta in ipairs(_getDiskPlugins()) do
         local name = meta.name
         local fm_key, fm_method
 
         if fm then
             -- Try the exact name, then common casing variants.
-            for _, candidate in ipairs({ name, name:lower(), name:gsub("_",""), name:lower():gsub("_","") }) do
+            for _i, candidate in ipairs({ name, name:lower(), name:gsub("_",""), name:lower():gsub("_","") }) do
                 -- Normal table access, not rawget — matches execution path in sui_bottombar.lua
                 local inst = fm[candidate]
                 if inst and type(inst) == "table" then
@@ -405,7 +389,7 @@ local function _scanDispatcherActions()
         end)()
 
     local results = {}
-    for _, action_id in ipairs(order) do
+    for _i, action_id in ipairs(order) do
         local def = settingsList[action_id]
         if type(def) == "table" and def.title and def.category == "none"
                 and (def.condition == nil or def.condition == true) then
@@ -471,7 +455,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         end
 
         local fields = {}
-        for _, f in ipairs(spec.fields) do
+        for _i, f in ipairs(spec.fields) do
             fields[#fields + 1] = { description = f.description, text = f.text or "", hint = f.hint }
         end
 
@@ -536,7 +520,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
     local function openCollectionPicker()
         local buttons = {}
-        for _, coll_name in ipairs(collections) do
+        for _i, coll_name in ipairs(collections) do
             local name = coll_name
             buttons[#buttons + 1] = {{ text = name, callback = function()
                 UIManager:close(plugin._qa_coll_picker)
@@ -562,7 +546,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             return
         end
         local buttons = {}
-        for _, a in ipairs(plugin_actions) do
+        for _i, a in ipairs(plugin_actions) do
             local _a = a
             local label = _a._inactive
                 and (_a.title .. "  (" .. _("restart required") .. ")")
@@ -594,7 +578,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             return
         end
         local buttons = {}
-        for _, a in ipairs(actions) do
+        for _i, a in ipairs(actions) do
             local _a = a
             buttons[#buttons + 1] = {{ text = _a.title, callback = function()
                 UIManager:close(plugin._qa_dispatcher_picker)
@@ -643,10 +627,10 @@ function QA.makeMenuItems(plugin)
 
     local function allActions()
         local pool = {}
-        for _, a in ipairs(Config.ALL_ACTIONS) do
+        for _i, a in ipairs(Config.ALL_ACTIONS) do
             pool[#pool + 1] = { id = a.id, is_default = true }
         end
-        for _, qa_id in ipairs(Config.getCustomQAList()) do
+        for _i, qa_id in ipairs(Config.getCustomQAList()) do
             pool[#pool + 1] = { id = qa_id, is_default = false }
         end
         table.sort(pool, function(a, b)
@@ -657,7 +641,7 @@ function QA.makeMenuItems(plugin)
 
     local function makeChangeIconsMenu()
         local items = {}
-        for _, entry in ipairs(allActions()) do
+        for _i, entry in ipairs(allActions()) do
             local _id         = entry.id
             local _is_default = entry.is_default
             items[#items + 1] = {
@@ -710,7 +694,7 @@ function QA.makeMenuItems(plugin)
 
     local function makeRenameMenu()
         local items = {}
-        for _, entry in ipairs(allActions()) do
+        for _i, entry in ipairs(allActions()) do
             local _id         = entry.id
             local _is_default = entry.is_default
             items[#items + 1] = {
@@ -796,13 +780,13 @@ function QA.makeMenuItems(plugin)
     items[#items].separator = true
 
     local sorted_qa = {}
-    for _, qa_id in ipairs(qa_list) do
+    for _i, qa_id in ipairs(qa_list) do
         local cfg = Config.getCustomQAConfig(qa_id)
         sorted_qa[#sorted_qa + 1] = { id = qa_id, label = cfg.label or qa_id }
     end
     table.sort(sorted_qa, function(a, b) return a.label:lower() < b.label:lower() end)
 
-    for _, entry in ipairs(sorted_qa) do
+    for _i, entry in ipairs(sorted_qa) do
         local _id = entry.id
         items[#items + 1] = {
             text_func = function()
@@ -916,7 +900,7 @@ function QA.showPluginPickerForTab(plugin, pos)
         return
     end
     local buttons = {}
-    for _, a in ipairs(plugin_actions) do
+    for _i, a in ipairs(plugin_actions) do
         local _a = a
         local label = _a._inactive
             and (_a.title .. "  (" .. _("restart required") .. ")")
@@ -941,7 +925,7 @@ function QA.showDispatcherPickerForTab(plugin, pos)
         return
     end
     local buttons = {}
-    for _, a in ipairs(actions) do
+    for _i, a in ipairs(actions) do
         local _a = a
         buttons[#buttons + 1] = {{ text = _a.title, callback = function()
             UIManager:close(plugin._qa_tab_dispatcher_picker)

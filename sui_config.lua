@@ -129,6 +129,27 @@ for _i, id in ipairs(M.DEFAULT_TABS) do
     if id ~= "home" then M.NON_HOME_DEFAULTS[#M.NON_HOME_DEFAULTS + 1] = id end
 end
 
+-- Plugin entry point methods to try, in order of preference.
+-- Shared between sui_quickactions.lua and sui_bottombar.lua.
+M.PLUGIN_ENTRY_METHODS = {
+    "onShow",
+    "show",
+    "open",
+    "onOpen",
+    "launch",
+    "onSearchBooks",
+    "onShowStore",
+    "onShowTextEditor",
+    "onShowWallabag",
+    "onShowCalendar",
+    "onShowCalibre",
+    "onShowDropbox",
+    "onShowEvernote",
+    "onShowZotero",
+    "onShowPlugin",
+    "onShowStatistics",
+}
+
 -- ---------------------------------------------------------------------------
 -- Predefined action catalogue
 -- ---------------------------------------------------------------------------
@@ -1008,7 +1029,7 @@ end
 -- Priority order (top-down on the UIManager stack):
 --   1. A Menu/BookList directly on the stack (History, Collections BookList,
 --      any fullscreen menu)
---   2. The FM's file_chooser (always a Menu/BookList)
+--   2. The FM — the pageable menu is file_chooser inside.
 --
 -- Returns false, false when no pageable widget is found or when the widget
 -- is the homescreen (which has no pagination).
