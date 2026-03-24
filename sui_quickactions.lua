@@ -318,6 +318,11 @@ function QA.invalidatePluginCache()
 end
 
 -- Main scanner — returns { fm_key, fm_method, title [, _inactive=true] }
+-- Main scanner — returns { fm_key, fm_method, title [, _inactive=true] }
+-- Strategy:
+-- 1. Phase 1: Sweep FM for ALL active plugins (most reliable - uses actual FM keys)
+-- 2. Phase 2: Supplement with disk-discovered plugins not yet in FM
+-- 3. Each plugin stored with its ACTUAL FM key for execution
 local function _scanAllPlugins()
     _debug("_scanAllPlugins: Starting plugin scan")
     
@@ -326,82 +331,80 @@ local function _scanAllPlugins()
     local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
     if ok_fm and FM then 
         fm = FM.instance 
-        _debug("_scanAllPlugins: FM.instance found:", fm and "yes" or "no")
-    else
-        _debug("_scanAllPlugins: Could not get FM.instance")
+        _debug("_scanAllPlugins: FM.instance:", fm and "found" or "nil")
     end
 
     local results = {}
-    local seen    = {}
+    local seen_names = {}  -- Track by plugin name to avoid duplicates
 
-    -- Phase 1: for each disk-discovered plugin, find its live FM instance.
-    _debug("_scanAllPlugins: Phase 1 - scanning disk plugins")
-    local disk_plugins = _getDiskPlugins()
-    _debug("_scanAllPlugins: Found", #disk_plugins, "disk plugins")
-    
-    for _i, meta in ipairs(disk_plugins) do
-        local name = meta.name
-        local fm_key, fm_method
-        _debug("_scanAllPlugins: Checking disk plugin:", name)
-
-        if fm then
-            -- Try the exact name, then common casing variants.
-            for _i, candidate in ipairs({ name, name:lower(), name:gsub("_",""), name:lower():gsub("_","") }) do
-                -- Normal table access, not rawget — matches execution path in sui_bottombar.lua
-                local inst = fm[candidate]
-                _debug("_scanAllPlugins:   trying key '", candidate, "' -> ", type(inst))
-                if inst and type(inst) == "table" then
-                    local method = _probeMethod(inst)
-                    _debug("_scanAllPlugins:   found instance, method:", method)
+    -- Phase 1: Sweep FM for ALL active plugins
+    -- This finds plugins using their ACTUAL FM keys
+    if fm then
+        _debug("_scanAllPlugins: Phase 1 - sweeping FM for active plugins")
+        for key, val in pairs(fm) do
+            if type(key) == "string" and type(val) == "table"
+                    and not _SKIP_KEYS[key] then
+                local inst_name = type(val.name) == "string" and val.name or nil
+                if inst_name and inst_name ~= "" and not seen_names[inst_name] then
+                    local method = _probeMethod(val)
                     if method then
-                        fm_key    = candidate
-                        fm_method = method
-                        break
+                        seen_names[inst_name] = true
+                        local title = (type(val.fullname) == "string" and val.fullname ~= "")
+                            and val.fullname or inst_name
+                        results[#results + 1] = { fm_key = key, fm_method = method, title = title }
+                        _debug("_scanAllPlugins:   FM active:", inst_name, "key:", key, "method:", method)
                     end
                 end
             end
         end
-
-        if fm_key and not seen[fm_key] then
-            seen[fm_key] = true
-            results[#results + 1] = { fm_key = fm_key, fm_method = fm_method, title = meta.title }
-            _debug("_scanAllPlugins:   ACTIVE plugin added:", fm_key, "method:", fm_method)
-        elseif not fm_key and not seen[name] then
-            -- Installed but not currently active.
-            seen[name] = true
-            results[#results + 1] = { fm_key = name, fm_method = "onShow", title = meta.title, _inactive = true }
-            _debug("_scanAllPlugins:   INACTIVE plugin added:", name)
-        end
     end
 
-    -- Phase 2: sweep FM for plugins not found via _meta.lua (e.g. unusual naming).
-    if fm then
-        _debug("_scanAllPlugins: Phase 2 - sweeping FM for unregistered plugins")
-        for key, val in pairs(fm) do
-            if type(key) == "string" and type(val) == "table"
-                    and not _SKIP_KEYS[key] and not seen[key] then
-                local inst_name = type(val.name) == "string" and val.name or nil
-                if inst_name and inst_name ~= "" then
-                    local method = _probeMethod(val)
-                    if method then
-                        seen[key] = true
-                        local disp = (type(val.fullname) == "string" and val.fullname ~= "")
-                            and val.fullname or inst_name
-                        results[#results + 1] = { fm_key = key, fm_method = method, title = disp }
-                        _debug("_scanAllPlugins:   FM sweep found:", key, "name:", inst_name, "method:", method)
+    -- Phase 2: Add disk plugins not already found in FM
+    _debug("_scanAllPlugins: Phase 2 - adding disk plugins not in FM")
+    local disk_plugins = _getDiskPlugins()
+    for _i, meta in ipairs(disk_plugins) do
+        local name = meta.name
+        if not seen_names[name] then
+            seen_names[name] = true
+            -- Try to find this plugin in FM by name
+            local fm_key = nil
+            local fm_method = "onShow"  -- default fallback
+            
+            if fm then
+                -- Search FM for a plugin with matching name
+                for key, val in pairs(fm) do
+                    if type(key) == "string" and type(val) == "table" then
+                        local inst_name = type(val.name) == "string" and val.name or nil
+                        if inst_name == name then
+                            local method = _probeMethod(val)
+                            if method then
+                                fm_key = key
+                                fm_method = method
+                                break
+                            end
+                        end
                     end
                 end
+            end
+            
+            if fm_key then
+                results[#results + 1] = { fm_key = fm_key, fm_method = fm_method, title = meta.title }
+                _debug("_scanAllPlugins:   Disk + FM match:", name, "key:", fm_key)
+            else
+                results[#results + 1] = { fm_key = name, fm_method = "onShow", title = meta.title, _inactive = true }
+                _debug("_scanAllPlugins:   Disk only (inactive):", name)
             end
         end
     end
 
     table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
-    _debug("_scanAllPlugins: Final results:", #results, "plugins")
+    _debug("_scanAllPlugins: Final:", #results, "plugins")
     for _i, p in ipairs(results) do
-        _debug("  ", _i, ":", p.title, "(key:", p.fm_key, "method:", p.fm_method, p._inactive and "(inactive)" or "")
+        _debug("_scanAllPlugins:   ", _i, ":", p.title, "(key:", p.fm_key, "method:", p.fm_method, p._inactive and "(inactive)" or "")
     end
     return results
 end
+
 
 -- ---------------------------------------------------------------------------
 -- Dispatcher action scanner
