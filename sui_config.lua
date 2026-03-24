@@ -268,7 +268,22 @@ local function getQASettingsKey(qa_id)
 end
 
 function M.getCustomQAList()
-    return G_reader_settings:readSetting("navbar_custom_qa_list") or {}
+    local list = G_reader_settings:readSetting("navbar_custom_qa_list") or {}
+    -- Filter out any IDs whose config entries no longer exist
+    local valid = {}
+    for _i, qa_id in ipairs(list) do
+        local cfg = G_reader_settings:readSetting("navbar_cqa_" .. qa_id)
+        if cfg then
+            valid[#valid + 1] = qa_id
+        else
+            logger.warn("simpleui: getCustomQAList: removing stale QA id:", qa_id)
+        end
+    end
+    -- If any were removed, save the cleaned list
+    if #valid ~= #list then
+        G_reader_settings:saveSetting("navbar_custom_qa_list", valid)
+    end
+    return valid
 end
 
 function M.saveCustomQAList(list)
