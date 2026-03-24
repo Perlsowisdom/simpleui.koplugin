@@ -275,13 +275,18 @@ function M.saveCustomQAList(list)
     G_reader_settings:saveSetting("navbar_custom_qa_list", list)
 end
 
+-- String trimming helper
+local function trim(s)
+    return s and s:match("^%s*(.-)%s*$") or nil
+end
+
 function M.getCustomQAConfig(qa_id)
     local cfg = G_reader_settings:readSetting(getQASettingsKey(qa_id)) or {}
     return {
         label             = cfg.label or qa_id,
         path              = cfg.path,
         collection        = cfg.collection,
-        plugin_key        = cfg.plugin_key,
+        plugin_key        = trim(cfg.plugin_key),
         plugin_method     = cfg.plugin_method,
         dispatcher_action = cfg.dispatcher_action,
         icon              = cfg.icon,
@@ -293,7 +298,7 @@ function M.saveCustomQAConfig(qa_id, label, path, collection, icon, plugin_key, 
         label             = label,
         path              = path,
         collection        = collection,
-        plugin_key        = plugin_key,
+        plugin_key        = trim(plugin_key),
         plugin_method     = plugin_method,
         dispatcher_action = dispatcher_action,
         icon              = icon,

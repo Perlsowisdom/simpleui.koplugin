@@ -883,8 +883,9 @@ local function _executeInPlace(action_id, plugin, fm)
                 showUnavailable(_("Dispatcher not available."))
             end
         elseif cfg.plugin_key and cfg.plugin_key ~= "" then
+            _debug("plugin execution: plugin_key hex:", cfg.plugin_key:gsub(".", function(c) return string.format("%02X ", string.byte(c)) end))
             local plugin_inst = fm and fm[cfg.plugin_key]
-            _debug("plugin execution: looking for '", cfg.plugin_key, "' in fm -> ", type(plugin_inst))
+            _debug("plugin execution: looking for '", cfg.plugin_key, "' in fm ->", type(plugin_inst))
             if plugin_inst then
                 local methods_to_try = {}
                 if cfg.plugin_method and cfg.plugin_method ~= "" then
