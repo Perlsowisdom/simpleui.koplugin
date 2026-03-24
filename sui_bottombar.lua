@@ -879,7 +879,7 @@ local function _executeInPlace(action_id, plugin, fm)
                 showUnavailable(_("Dispatcher not available."))
             end
         elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
-            local plugin_inst = fm and fm.menu_items and fm.menu_items[cfg.plugin_key]
+            local plugin_inst = fm and fm.menu_items and fm[cfg.plugin_key]
             if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
                 local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
                 if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
@@ -1135,7 +1135,7 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
                     showUnavailable(_("Dispatcher not available."))
                 end
             elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
-                local plugin_inst = fm and fm.menu_items and fm.menu_items[cfg.plugin_key]
+                local plugin_inst = fm and fm.menu_items and fm[cfg.plugin_key]
                 if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
                     local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
                     if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end

@@ -213,82 +213,93 @@ local function _scanAllPlugins()
     local results = {}
     local seen = {}
     
-    -- Scan FileManager plugins from menu_items table
+    -- Scan FileManager for plugin instances stored directly in fm
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if fm and fm.menu_items then
-        for key, val in pairs(fm.menu_items) do
-            if type(val) == "table" and type(val.addToMainMenu) == "function" and not seen[key] then
-                seen[key] = true
-                local method = nil
-                for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
-                    if type(val[pfx]) == "function" then method = pfx; break end
-                end
-                if not method then
-                    local cap = "on" .. key:sub(1,1):upper() .. key:sub(2)
-                    if type(val[cap]) == "function" then method = cap end
-                end
-                if method then
-                    results[#results + 1] = { fm_key = key, fm_method = method, title = val.text or key }
+    
+    if fm then
+        -- Iterate fm directly to find plugin instances
+        -- Plugins store themselves as fm.xxx where xxx is the plugin name
+        for key, val in pairs(fm) do
+            if type(key) == "string" and type(val) == "table" then
+                -- Check if this looks like a plugin (has .name and methods)
+                if type(val.name) == "string" and key ~= "ui" and key ~= "file_chooser" then
+                    if not seen[key] and key ~= "simpleui" then
+                        local method = nil
+                        for _, pfx in ipairs({"onShow","show","open","launch","onOpen","onSearchBooks"}) do
+                            if type(val[pfx]) == "function" then method = pfx; break end
+                        end
+                        if not method then
+                            local cap = "on" .. key:sub(1,1):upper() .. key:sub(2)
+                            if type(val[cap]) == "function" then method = cap end
+                        end
+                        if method then
+                            results[#results + 1] = { fm_key = key, fm_method = method, title = val.name or key }
+                            seen[key] = true
+                        end
+                    end
                 end
             end
         end
     end
     
-    -- Scan ReaderUI plugins from menu_items table
+    -- Scan ReaderUI for reader plugins
     local ReaderUI = package.loaded["apps/reader/readerui"]
     ReaderUI = ReaderUI and ReaderUI.instance
-    if ReaderUI and ReaderUI.menu_items then
-        for key, val in pairs(ReaderUI.menu_items) do
-            if type(val) == "table" and type(val.addToMainMenu) == "function" and not seen[key] then
-                seen[key] = true
-                local method = nil
-                for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
-                    if type(val[pfx]) == "function" then method = pfx; break end
-                end
-                if not method then
-                    local cap = "on" .. key:sub(1,1):upper() .. key:sub(2)
-                    if type(val[cap]) == "function" then method = cap end
-                end
-                if method then
-                    results[#results + 1] = { fm_key = key, fm_method = method, title = val.text or key }
+    
+    if ReaderUI then
+        for key, val in pairs(ReaderUI) do
+            if type(key) == "string" and type(val) == "table" then
+                if type(val.name) == "string" and key ~= "ui" then
+                    if not seen[key] and key ~= "simpleui" then
+                        local method = nil
+                        for _, pfx in ipairs({"onShow","show","open","launch","onOpen","onSearchBooks"}) do
+                            if type(val[pfx]) == "function" then method = pfx; break end
+                        end
+                        if not method then
+                            local cap = "on" .. key:sub(1,1):upper() .. key:sub(2)
+                            if type(val[cap]) == "function" then method = cap end
+                        end
+                        if method then
+                            results[#results + 1] = { fm_key = key, fm_method = method, title = val.name or key }
+                            seen[key] = true
+                        end
+                    end
                 end
             end
         end
     end
     
-    -- Known plugins that may not be loaded yet
+    -- Known plugins that may not be loaded yet - try requiring them
     local known = {
-        { key = "bookfusion",       method = "onSearchBooks",         title = "BookFusion" },
-        { key = "kostore",          method = "onShowStore",           title = "KOStore" },
-        { key = "statistics",       method = "onShowStatistics",      title = "Statistics" },
-        { key = "terminal",         method = "onShowTerminal",        title = "Terminal" },
-        { key = "texteditor",       method = "onShowTextEditor",      title = "Text Editor" },
-        { key = "vimkeymap",        method = "onShowVimKeymap",      title = "Vim Keymap" },
-        { key = "wallabag",         method = "onShowWallabag",        title = "Wallabag" },
-        { key = "calibre",          method = "onShowCalibre",         title = "Calibre" },
-        { key = "calibre_wireless", method = "onShowCalibreWireless", title = "Calibre Wireless" },
-        { key = "zotero",           method = "onShowZotero",          title = "Zotero" },
-        { key = "dropbox",          method = "onShowDropbox",         title = "Dropbox" },
-        { key = "webbrowser",       method = "onShowWebBrowser",     title = "Web Browser" },
-        { key = "evernote",         method = "onShowEvernote",       title = "Evernote" },
-        { key = "ssh",              method = "onShowSSH",             title = "SSH" },
-        { key = "ocr",              method = "onShowOCR",             title = "OCR" },
-        { key = "servermode",       method = "onShowServerMode",      title = "Server Mode" },
+        { key = "bookfusion",    require_path = "plugins/bookfusion.koplugin/main",     method = "onSearchBooks", title = "BookFusion" },
+        { key = "kostore",       require_path = "plugins/kostore.koplugin/main",      method = "onShowStore",   title = "KOStore" },
+        { key = "statistics",    require_path = "plugins/statistics.koplugin/main",   method = "onShowStatistics", title = "Statistics" },
+        { key = "terminal",     require_path = "plugins/terminal.koplugin/main",     method = "onShowTerminal", title = "Terminal" },
+        { key = "texteditor",   require_path = "plugins/texteditor.koplugin/main",   method = "onShowTextEditor", title = "Text Editor" },
+        { key = "wallabag",     require_path = "plugins/wallabag.koplugin/main",     method = "onShowWallabag", title = "Wallabag" },
+        { key = "calibre",      require_path = "plugins/calibre.koplugin/main",      method = "onShowCalibre", title = "Calibre" },
+        { key = "dropbox",      require_path = "plugins/dropbox.koplugin/main",      method = "onShowDropbox", title = "Dropbox" },
+        { key = "evernote",     require_path = "plugins/evernote.koplugin/main",     method = "onShowEvernote", title = "Evernote" },
+        { key = "zotero",       require_path = "plugins/zotero.koplugin/main",       method = "onShowZotero", title = "Zotero" },
     }
-    -- Always include known plugins in the list
+    
     for _, entry in ipairs(known) do
         if not seen[entry.key] then
-            results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
-            seen[entry.key] = true
+            local ok, plugin = pcall(require, entry.require_path)
+            if ok and plugin then
+                -- The require returns the plugin class, we need to check if it has the method
+                if type(plugin[entry.method]) == "function" then
+                    results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title, needs_require = entry.require_path }
+                    seen[entry.key] = true
+                end
+            end
         end
     end
     
     table.sort(results, function(a, b) return a.title < b.title end)
     return results
 end
-
-
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
     if not ok_d or not Dispatcher then return {} end
