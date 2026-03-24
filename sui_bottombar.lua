@@ -733,7 +733,7 @@ local function _isInPlaceAction(action_id)
         -- or call a plugin method without opening a new fullscreen widget).
         -- collection and path navigate away — those must close the HS.
         if cfg.dispatcher_action and cfg.dispatcher_action ~= "" then return true end
-        if cfg.plugin_key and cfg.plugin_key ~= "" then return true end
+        if cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then return true end
     end
     return false
 end
@@ -872,47 +872,16 @@ local function _executeInPlace(action_id, plugin, fm)
             else
                 showUnavailable(_("Dispatcher not available."))
             end
-        elseif cfg.plugin_key and cfg.plugin_key ~= "" then
+        elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
             local plugin_inst = fm and fm[cfg.plugin_key]
-            if plugin_inst then
-                local methods_to_try = {}
-                if cfg.plugin_method and cfg.plugin_method ~= "" then
-                    methods_to_try[#methods_to_try+1] = cfg.plugin_method
-                end
-                for _i, m in ipairs(Config.PLUGIN_ENTRY_METHODS) do
-                    methods_to_try[#methods_to_try+1] = m
-                end
-                local called = false
-                for _i, m in ipairs(methods_to_try) do
-                    if type(plugin_inst[m]) == \"function\" then
-                        local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
-                        if not ok then
-                            showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
-                        end
-                        called = true; break
-                    end
-                end
-                if not called then
-                    showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
-                end
+            if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
+                local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
+                if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
             else
                 showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
             end
         end
     end
-
-    -- Restore HS to its original position and repaint to reflect any changes
-    -- from the action (e.g. nightmode inversion, frontlight level update).
-    if hs_inst and hs_idx and hs_idx > 1 then
-        for i, entry in ipairs(stack) do
-            if entry.widget == hs_inst then
-                local e = table.remove(stack, i)
-                table.insert(stack, hs_idx, e)
-                break
-            end
-        end
-    end
-    UIManager:setDirty(hs_inst or fm, "ui")
 end
 
 function M.navigate(plugin, action_id, fm_self, tabs, force)
@@ -1131,35 +1100,17 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
                         Dispatcher:execute({ [cfg.dispatcher_action] = true })
                     end)
                     if not ok then
-                        logger.warn("simpleui: dispatcher_action failed:", cfg.dispatcher_action, tostring(err))
-                        showUnavailable(string.format(_("System action error: %s"), tostring(err)))
+                        logger.warn("simpleui: Wi-Fi turn-on error:", tostring(err))
+                        Config.wifi_optimistic = nil
                     end
                 else
                     showUnavailable(_("Dispatcher not available."))
                 end
-            elseif cfg.plugin_key and cfg.plugin_key ~= "" then
+            elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
                 local plugin_inst = fm and fm[cfg.plugin_key]
-                if plugin_inst then
-                    local methods_to_try = {}
-                    if cfg.plugin_method and cfg.plugin_method ~= "" then
-                        methods_to_try[#methods_to_try+1] = cfg.plugin_method
-                    end
-                    for _i, m in ipairs(Config.PLUGIN_ENTRY_METHODS) do
-                        methods_to_try[#methods_to_try+1] = m
-                    end
-                    local called = false
-                    for _i, m in ipairs(methods_to_try) do
-                        if type(plugin_inst[m]) == \"function\" then
-                            local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
-                            if not ok then
-                                showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
-                            end
-                            called = true; break
-                        end
-                    end
-                    if not called then
-                        showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
-                    end
+                if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
+                    local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
+                    if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
                 else
                     showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
                 end
