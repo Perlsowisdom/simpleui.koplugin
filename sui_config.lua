@@ -61,7 +61,7 @@ M.ICON = {
     history        = _P .. "history.svg",
     continue_      = _P .. "continue.svg",       -- trailing _ avoids clash with Lua keyword
     frontlight     = _P .. "frontlight.svg",
-    bookfusion     = _P .. "bookfusion.svg",
+    stats          = _P .. "stats.svg",
     power          = _P .. "power.svg",
     plus_alt       = _P .. "plus_alt.svg",
     custom         = _P .. "custom.svg",
@@ -119,7 +119,6 @@ M.ALL_ACTIONS = {
     { id = "wifi_toggle",      label = _("Wi-Fi"),            icon = M.ICON.ko_wifi_on  },
     { id = "frontlight",       label = _("Brightness"),       icon = M.ICON.frontlight  },
     { id = "stats_calendar",   label = _("Stats"),            icon = M.ICON.stats       },
-    { id = "bookfusion",       label = _("BookFusion"),      icon = M.ICON.bookfusion  },
     { id = "power",            label = _("Power"),            icon = M.ICON.power       },
 }
 
