@@ -482,9 +482,9 @@ msgid "Swipe Indicator"
 msgstr ""
 
 msgid "System Actions"
+
 msgid "Plugins…"
 msgstr ""
-
 msgstr ""
 
 msgid "System action error: %s"
@@ -659,6 +659,12 @@ msgid "Bookmark browser not available."
 msgstr ""
 
 msgid "Bookmarks"
+
+msgid "BookFusion"
+msgstr ""
+
+msgid "BookFusion not available. Make sure it is linked."
+msgstr ""
 msgstr ""
 
 msgid "Bottom"
