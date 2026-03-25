@@ -377,7 +377,7 @@ local function _scanAllPlugins()
         _debug("_scanAllPlugins: PluginLoader not available")
     end
     
-    -- Now scan FM for instantiated plugins to get actual running state
+    -- Scan FM for instantiated plugins and create proper instances via PluginLoader
     local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
     if ok_fm and FM and FM.instance then
         local fm = FM.instance
@@ -387,7 +387,35 @@ local function _scanAllPlugins()
                     and type(val.inner_widget) == "table"
                     and val.name
                     and not seen[val.name] then
-                _debug("_scanAllPlugins: FM instance not in PluginLoader:", val.name)
+                
+                -- Try to get or create the actual plugin instance
+                local instance = val
+                local ok_pl, PluginLoader = pcall(require, "pluginloader")
+                if ok_pl and PluginLoader then
+                    -- Check if already instantiated
+                    local existing = PluginLoader.loaded_plugins[val.name]
+                    if existing then
+                        instance = existing
+                    else
+                        -- Try to create instance via PluginLoader
+                        local ok_inst, inst = pcall(PluginLoader.createPluginInstance, PluginLoader, val, {ui=fm.ui})
+                        if ok_inst and inst then
+                            instance = inst
+                        end
+                    end
+                end
+                
+                local method = _probeMethod(instance)
+                if method then
+                    _debug("_scanAllPlugins: FM instance:", val.name, "key:", key, "method:", method)
+                    seen[val.name] = true
+                    results[#results + 1] = {
+                        fm_key = key,
+                        fm_method = method,
+                        title = val.name,
+                        _inactive = false,
+                    }
+                end
             end
         end
     end
