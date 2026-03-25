@@ -337,45 +337,68 @@ local function _probeMethod(inst)
 end
 
 -- Main scanner using PluginLoader
+-- Proper plugin scanning using PluginLoader
 local function _scanAllPlugins()
-    -- Get live FM instance
-    local fm = nil
-    local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
-    if ok_fm and FM then fm = FM.instance end
-
-    if not fm then
-        _debug("_scanAllPlugins: FM not available")
-        return {}
-    end
-
-    _debug("_scanAllPlugins: FM found, scanning for plugins")
-
+    local _debug = logger and function(...) end or function() end
+    
+    _debug("_scanAllPlugins: Starting")
     local results = {}
     local seen = {}
-
-    -- Scan FM instance for plugin-like objects
-    -- Plugins extend WidgetContainer and have a `name` property
-    for key, val in pairs(fm) do
-        if type(key) == "string" and type(val) == "table" then
-            local pname = val.name
-            if pname and type(pname) == "string" and not _SKIP_KEYS[pname] and not seen[pname] then
-                local method = _probeMethod(val)
-                if method then
-                    seen[pname] = true
-                    results[#results + 1] = {
-                        fm_key = key,
-                        fm_method = method,
-                        title = val.fullname or pname,
-                    }
-                    _debug("_scanAllPlugins: FM instance found:", pname, "key:", key, "method:", method)
-                end
+    
+    -- Get installed plugins from PluginLoader (handles disabled/enabled)
+    local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    if ok_pl and PluginLoader then
+        local enabled_plugins, disabled_plugins = PluginLoader:loadPlugins()
+        _debug("_scanAllPlugins: PluginLoader returned", #(enabled_plugins or {}), "enabled,", #(disabled_plugins or {}), "disabled")
+        
+        -- First add all ENABLED plugins (active & installed)
+        if enabled_plugins then
+            for _, plug in ipairs(enabled_plugins) do
+                _debug("_scanAllPlugins: enabled plugin:", plug.name)
+                results[#results + 1] = {
+                    fm_key = plug.name,
+                    fm_method = "onShow",
+                    title = plug.name,
+                    _inactive = false,
+                }
+                seen[plug.name] = true
+            end
+        end
+        
+        -- Then add DISABLED plugins (inactive but installed)
+        if disabled_plugins then
+            for _, plug in ipairs(disabled_plugins) do
+                _debug("_scanAllPlugins: disabled plugin:", plug.name)
+                results[#results + 1] = {
+                    fm_key = plug.name,
+                    fm_method = "onShow",
+                    title = plug.name,
+                    _inactive = true,
+                }
+                seen[plug.name] = true
+            end
+        end
+    else
+        _debug("_scanAllPlugins: PluginLoader not available")
+    end
+    
+    -- Now scan FM for instantiated plugins to get actual running state
+    local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
+    if ok_fm and FM and FM.instance then
+        local fm = FM.instance
+        for key, val in pairs(fm) do
+            if type(key) == "string" and type(val) == "table"
+                    and not _SKIP_KEYS[key]
+                    and type(val.inner_widget) == "table"
+                    and val.name
+                    and not seen[val.name] then
+                _debug("_scanAllPlugins: FM instance not in PluginLoader:", val.name)
             end
         end
     end
-
+    
     table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
     _debug("_scanAllPlugins: Returning", #results, "plugins")
-
     return results
 end
 
