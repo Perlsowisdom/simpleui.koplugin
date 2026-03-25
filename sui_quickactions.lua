@@ -366,18 +366,6 @@ local function _scanAllPlugins()
         end
         
         -- Then add DISABLED plugins (inactive but installed)
-        if disabled_plugins then
-            for _, plug in ipairs(disabled_plugins) do
-                _debug("_scanAllPlugins: disabled plugin:", plug.name)
-                results[#results + 1] = {
-                    fm_key = plug.name,
-                    fm_method = "onShow",
-                    title = plug.name,
-                    _inactive = true,
-                }
-                seen[plug.name] = true
-            end
-        end
     else
         _debug("_scanAllPlugins: PluginLoader not available")
     end
