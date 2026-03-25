@@ -406,3 +406,154 @@ function _scanAllPlugins()
     _debug("_scanAllPlugins: Returning", #results, "plugins")
     return results
 end
+
+function QA.showPluginPickerForTab(plugin, pos)
+    local ok, err = pcall(function()
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local InfoMessage  = require("ui/widget/infomessage")
+
+        local plugin_actions = _scanAllPlugins()
+        if not plugin_actions or #plugin_actions == 0 then
+            UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
+            return
+        end
+
+        local buttons = {}
+        table.sort(plugin_actions, function(a, b)
+            return (a.title or ""):lower() < (b.title or ""):lower()
+        end)
+
+        local function addToTab(action)
+            local qa_id = Config.nextCustomQAId()
+            local list  = Config.getCustomQAList() or {}
+            list[#list + 1] = qa_id
+            Config.saveCustomQAList(list)
+
+            local label = Config.sanitizeLabel and Config.sanitizeLabel(action.title or action.fm_key) or (action.title or action.fm_key)
+            if label == nil or label == "" then label = action.fm_key or "Plugin" end
+
+            Config.saveCustomQAConfig(
+                qa_id,
+                label,
+                nil,
+                nil,
+                Config.CUSTOM_PLUGIN_ICON,
+                action.fm_key,
+                action.fm_method,
+                nil
+            )
+
+            local tabs = Config.loadTabConfig()
+            if type(tabs) == "table" and pos and pos >= 1 and pos <= #tabs then
+                tabs[pos] = qa_id
+                Config.saveTabConfig(tabs)
+            end
+
+            QA.invalidateCustomQACache()
+            if plugin and plugin._rebuildAllNavbars then plugin:_rebuildAllNavbars() end
+        end
+
+        for _i, a in ipairs(plugin_actions) do
+            local _a = a
+            buttons[#buttons + 1] = {{
+                text = _a.title or _a.fm_key or "Plugin",
+                callback = function()
+                    UIManager:close(plugin._qa_tab_plugin_picker)
+                    addToTab(_a)
+                end,
+            }}
+        end
+
+        buttons[#buttons + 1] = {{
+            text = _("Cancel"),
+            callback = function() UIManager:close(plugin._qa_tab_plugin_picker) end,
+        }}
+
+        plugin._qa_tab_plugin_picker = ButtonDialog:new{ buttons = buttons }
+        UIManager:show(plugin._qa_tab_plugin_picker)
+        pcall(function() plugin._qa_tab_plugin_picker:onShowKeyboard() end)
+    end)
+
+    if not ok then
+        UIManager:show(require("ui/widget/infomessage"):new{ text = string.format(_("Plugin error: %s"), tostring(err)), timeout = 3 })
+    end
+end
+
+function QA.showDispatcherPickerForTab(plugin, pos)
+    local ok, err = pcall(function()
+        local ButtonDialog = require("ui/widget/buttondialog")
+        local InfoMessage  = require("ui/widget/infomessage")
+
+        if type(_scanDispatcherActions) ~= "function" then
+            UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
+            return
+        end
+
+        local actions = _scanDispatcherActions()
+        if not actions or #actions == 0 then
+            UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
+            return
+        end
+
+        local function addToTab(action_id, title)
+            local qa_id = Config.nextCustomQAId()
+            local list  = Config.getCustomQAList() or {}
+            list[#list + 1] = qa_id
+            Config.saveCustomQAList(list)
+
+            local label = Config.sanitizeLabel and Config.sanitizeLabel(title) or title
+            if label == nil or label == "" then label = "Action" end
+
+            Config.saveCustomQAConfig(
+                qa_id,
+                label,
+                nil,
+                nil,
+                Config.CUSTOM_DISPATCHER_ICON,
+                nil,
+                nil,
+                action_id
+            )
+
+            local tabs = Config.loadTabConfig()
+            if type(tabs) == "table" and pos and pos >= 1 and pos <= #tabs then
+                tabs[pos] = qa_id
+                Config.saveTabConfig(tabs)
+            end
+
+            QA.invalidateCustomQACache()
+            if plugin and plugin._rebuildAllNavbars then plugin:_rebuildAllNavbars() end
+        end
+
+        local buttons = {}
+        table.sort(actions, function(a, b)
+            return (a.title or ""):lower() < (b.title or ""):lower()
+        end)
+
+        for _i, a in ipairs(actions) do
+            local _a = a
+            buttons[#buttons + 1] = {{
+                text = _a.title or _a.id or "Action",
+                callback = function()
+                    UIManager:close(plugin._qa_tab_dispatcher_picker)
+                    addToTab(_a.id, _a.title)
+                end,
+            }}
+        end
+
+        buttons[#buttons + 1] = {{
+            text = _("Cancel"),
+            callback = function() UIManager:close(plugin._qa_tab_dispatcher_picker) end,
+        }}
+
+        plugin._qa_tab_dispatcher_picker = ButtonDialog:new{ buttons = buttons }
+        UIManager:show(plugin._qa_tab_dispatcher_picker)
+        pcall(function() plugin._qa_tab_dispatcher_picker:onShowKeyboard() end)
+    end)
+
+    if not ok then
+        UIManager:show(require("ui/widget/infomessage"):new{ text = string.format(_("Plugin error: %s"), tostring(err)), timeout = 3 })
+    end
+end
+
+return QA
