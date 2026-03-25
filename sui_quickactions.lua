@@ -266,6 +266,15 @@ local function _readPluginMeta(plugin_dir)
     local name = extract("name")
     if not name then return nil end
     return { name = name, fullname = extract("fullname") }
+
+
+-- Sanitize plugin key: remove non-printable characters (fixes garbage bytes in some _meta.lua files)
+local function sanitizePluginKey(key)
+    if not key then return nil end
+    -- Remove all non-printable characters except space
+    return key:gsub('[^%w_%-]', '')
+end
+
 end
 
 -- Locate KOReader's plugins/ directory.
