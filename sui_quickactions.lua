@@ -354,7 +354,7 @@ function _scanAllPlugins()
     local seen = {}
 
     -- Get properly instantiated plugins from PluginLoader
-    local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    local ok_pl, PluginLoader = pcall(require, "frontend/pluginloader")
     if ok_pl and PluginLoader then
         local enabled_plugins = PluginLoader:loadPlugins()
         _debug("_scanAllPlugins: Got", #(enabled_plugins or {}), "enabled plugins")
