@@ -338,59 +338,44 @@ end
 
 -- Main scanner using PluginLoader
 local function _scanAllPlugins()
-    _debug("_scanAllPlugins: Using PluginLoader")
-    
-    local PluginLoader
-    local ok, err = pcall(function()
-        PluginLoader = require("pluginloader")
-    end)
-    if not ok or not PluginLoader then
-        _debug("_scanAllPlugins: PluginLoader not available")
+    -- Get live FM instance
+    local fm = nil
+    local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
+    if ok_fm and FM then fm = FM.instance end
+
+    if not fm then
+        _debug("_scanAllPlugins: FM not available")
         return {}
     end
-    
-    -- Get enabled plugins from PluginLoader
-    local enabled_plugins, disabled_plugins = PluginLoader:loadPlugins()
-    _debug("_scanAllPlugins: Found", #enabled_plugins, "enabled,", #disabled_plugins, "disabled")
-    
+
+    _debug("_scanAllPlugins: FM found, scanning for plugins")
+
     local results = {}
-    
-    -- Process enabled plugins
-    for _, plugin_mod in ipairs(enabled_plugins) do
-        local name = plugin_mod.name
-        if name and not _SKIP_KEYS[name] then
-            local instance = PluginLoader:getPluginInstance(name)
-            local method = instance and _probeMethod(instance)
-            if instance and method then
-                results[#results + 1] = {
-                    fm_key = name,
-                    fm_method = method,
-                    title = plugin_mod.fullname or name,
-                }
-                _debug("_scanAllPlugins: ENABLED:", name, "method:", method)
-            else
-                _debug("_scanAllPlugins: ENABLED (no callable method):", name)
+    local seen = {}
+
+    -- Scan FM instance for plugin-like objects
+    -- Plugins extend WidgetContainer and have a `name` property
+    for key, val in pairs(fm) do
+        if type(key) == "string" and type(val) == "table" then
+            local pname = val.name
+            if pname and type(pname) == "string" and not _SKIP_KEYS[pname] and not seen[pname] then
+                local method = _probeMethod(val)
+                if method then
+                    seen[pname] = true
+                    results[#results + 1] = {
+                        fm_key = key,
+                        fm_method = method,
+                        title = val.fullname or pname,
+                    }
+                    _debug("_scanAllPlugins: FM instance found:", pname, "key:", key, "method:", method)
+                end
             end
         end
     end
-    
-    -- Process disabled plugins (marked as inactive)
-    for _, plugin_mod in ipairs(disabled_plugins) do
-        local name = plugin_mod.name
-        if name and not _SKIP_KEYS[name] then
-            results[#results + 1] = {
-                fm_key = name,
-                fm_method = "onShow",
-                title = plugin_mod.fullname or name,
-                _inactive = true,
-            }
-            _debug("_scanAllPlugins: DISABLED:", name)
-        end
-    end
-    
+
     table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
     _debug("_scanAllPlugins: Returning", #results, "plugins")
-    
+
     return results
 end
 
