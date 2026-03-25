@@ -323,92 +323,76 @@ end
 -- 1. Phase 1: Sweep FM for ALL active plugins (most reliable - uses actual FM keys)
 -- 2. Phase 2: Supplement with disk-discovered plugins not yet in FM
 -- 3. Each plugin stored with its ACTUAL FM key for execution
+-- Complete rewrite of _scanAllPlugins to use _meta.lua name directly
+-- as the FM key, which is what KOReader uses for require("plugins/<name>")
+
 local function _scanAllPlugins()
-    _debug("_scanAllPlugins: Starting plugin scan")
-    
-    -- Get live FM instance.
     local fm = nil
     local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
-    if ok_fm and FM then 
-        fm = FM.instance 
-        _debug("_scanAllPlugins: FM.instance:", fm and "found" or "nil")
-    end
+    if ok_fm and FM then fm = FM.instance end
 
     local results = {}
-    local seen_names = {}  -- Track by plugin name to avoid duplicates
+    local seen_names = {}
 
-    -- Phase 1: Sweep FM for ALL active plugins
-    -- This finds plugins using their ACTUAL FM keys
-    if fm then
-        _debug("_scanAllPlugins: Phase 1 - sweeping FM for active plugins")
-        for key, val in pairs(fm) do
-            if type(key) == "string" and type(val) == "table"
-                    and not _SKIP_KEYS[key] then
-                local inst_name = type(val.name) == "string" and val.name or nil
-                if inst_name and inst_name ~= "" and not seen_names[inst_name] then
-                    local method = _probeMethod(val)
-                    if method then
-                        seen_names[inst_name] = true
-                        local title = (type(val.fullname) == "string" and val.fullname ~= "")
-                            and val.fullname or inst_name
-                        results[#results + 1] = { fm_key = key, fm_method = method, title = title }
-                        _debug("_scanAllPlugins:   FM active:", inst_name, "key:", key, "method:", method)
-                    end
-                end
+    -- Phase 1: Use disk plugins as source of truth, get FM method if available
+    local disk_plugins = _getDiskPlugins()
+    _debug("_scanAllPlugins: Phase 1 - scanning", #disk_plugins, "disk plugins")
+    
+    for _idx, meta in ipairs(disk_plugins) do
+        local name = meta.name  -- This is the canonical name from _meta.lua
+        local title = meta.fullname or name
+        local fm_method = nil
+        
+        -- Look up this plugin in FM using its canonical name
+        if fm and fm[name] and type(fm[name]) == "table" then
+            fm_method = _probeMethod(fm[name])
+            if fm_method then
+                _debug("_scanAllPlugins:   FM active:", name, "method:", fm_method)
             end
+        end
+        
+        if not seen_names[name] then
+            seen_names[name] = true
+            local entry = {
+                fm_key = name,  -- Use the _meta.lua name as key
+                fm_method = fm_method,
+                title = title,
+                _inactive = (fm_method == nil)
+            }
+            results[#results + 1] = entry
+            _debug("_scanAllPlugins:   ", _idx, ":", name, "(key:", entry.fm_key, "method:", fm_method or "nil", entry._inactive and "(inactive)" or "")
         end
     end
 
-    -- Phase 2: Add disk plugins not already found in FM
-    _debug("_scanAllPlugins: Phase 2 - adding disk plugins not in FM")
-    local disk_plugins = _getDiskPlugins()
-    for _i, meta in ipairs(disk_plugins) do
-        local name = meta.name
-        if not seen_names[name] then
-            seen_names[name] = true
-            -- Try to find this plugin in FM by name
-            local fm_key = nil
-            local fm_method = "onShow"  -- default fallback
-            
-            if fm then
-                -- Search FM for a plugin with matching name
-                for key, val in pairs(fm) do
-                    if type(key) == "string" and type(val) == "table" then
-                        local inst_name = type(val.name) == "string" and val.name or nil
-                        if inst_name == name then
-                            local method = _probeMethod(val)
-                            if method then
-                                fm_key = key
-                                fm_method = method
-                                break
-                            end
-                        end
+    -- Phase 2: Also scan FM for plugins not found via _meta.lua
+    if fm then
+        _debug("_scanAllPlugins: Phase 2 - scanning FM for unregistered plugins")
+        for key, val in pairs(fm) do
+            if type(key) == "string" and type(val) == "table" and not seen_names[key] then
+                local inst_name = type(val.name) == "string" and val.name
+                if inst_name and inst_name ~= "" and not _SKIP_KEYS[inst_name] then
+                    local method = _probeMethod(val)
+                    if method then
+                        seen_names[key] = true
+                        local title = (type(val.fullname) == "string" and val.fullname ~= "") and val.fullname or inst_name
+                        results[#results + 1] = {
+                            fm_key = inst_name,  -- Use the plugin's own name
+                            fm_method = method,
+                            title = title,
+                            _inactive = true
+                        }
+                        _debug("_scanAllPlugins:   FM extra:", inst_name, "key:", key, "method:", method)
                     end
                 end
-            end
-            
-            if fm_key then
-                results[#results + 1] = { fm_key = fm_key, fm_method = fm_method, title = meta.title }
-                _debug("_scanAllPlugins:   Disk + FM match:", name, "key:", fm_key)
-            else
-                results[#results + 1] = { fm_key = name, fm_method = "onShow", title = meta.title, _inactive = true }
-                _debug("_scanAllPlugins:   Disk only (inactive):", name)
             end
         end
     end
 
     table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
-    _debug("_scanAllPlugins: Final:", #results, "plugins")
-    for _i, p in ipairs(results) do
-        _debug("_scanAllPlugins:   ", _i, ":", p.title, "(key:", p.fm_key, "method:", p.fm_method, p._inactive and "(inactive)" or "")
-    end
+    _debug("_scanAllPlugins: Total plugins found:", #results)
     return results
 end
 
-
--- ---------------------------------------------------------------------------
--- Dispatcher action scanner
--- ---------------------------------------------------------------------------
 
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
