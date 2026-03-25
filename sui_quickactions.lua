@@ -301,7 +301,7 @@ local function _getDiskPlugins()
             local meta = _readPluginMeta(_plugins_dir .. entry .. "/")
             if meta and meta.name and not _SKIP_KEYS[meta.name] then
                 result[#result + 1] = {
-                    name  = (meta.name or ""):match("^%s*(.-)%s*$"),
+                    name  = entry:gsub("%.koplugin$", ""),
                     title = meta.fullname or meta.name,
                 }
             end
