@@ -299,10 +299,11 @@ local function _getDiskPlugins()
         if entry ~= "." and entry ~= ".." and entry ~= "simpleui.koplugin"
                 and entry:match("%.koplugin$") then
             local meta = _readPluginMeta(_plugins_dir .. entry .. "/")
-            if meta and meta.name and not _SKIP_KEYS[meta.name] then
+            local dirname = entry:gsub("%.koplugin$", "")
+            if dirname and not _SKIP_KEYS[dirname] then
                 result[#result + 1] = {
-                    name  = entry:gsub("%.koplugin$", ""),
-                    title = meta.fullname or meta.name,
+                    name  = dirname,
+                    title = (meta and meta.fullname) or dirname,
                 }
             end
         end
@@ -318,104 +319,94 @@ function QA.invalidatePluginCache()
 end
 
 -- Main scanner — returns { fm_key, fm_method, title [, _inactive=true] }
--- Main scanner — returns { fm_key, fm_method, title [, _inactive=true] }
--- Strategy:
--- 1. Phase 1: Sweep FM for ALL active plugins (most reliable - uses actual FM keys)
--- 2. Phase 2: Supplement with disk-discovered plugins not yet in FM
--- 3. Each plugin stored with its ACTUAL FM key for execution
--- Complete rewrite of _scanAllPlugins to use _meta.lua name directly
--- as the FM key, which is what KOReader uses for require("plugins/<name>")
-
-function QA.scanPlugins()
-    local results = {}
+local function _scanAllPlugins()
+    _debug("_scanAllPlugins: Starting plugin scan")
     
-    -- Get live FM instance
+    -- Get live FM instance.
     local fm = nil
     local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
-    if ok_fm and FM then fm = FM.instance end
-    
-    -- Keys to skip
-    local SKIP_KEYS = {
-        simpleui = true,
-        gestures = true,
-        backgroundrunner = true,
-        timesync = true,
-        autowarmth = true,
-    }
-    
-    -- Find plugins directory
-    local plugins_dir = _findPluginsDir()
-    if not plugins_dir then
-        logger.warn("simpleui: plugins dir not found")
-        return results
+    if ok_fm and FM then 
+        fm = FM.instance 
+        _debug("_scanAllPlugins: FM.instance found:", fm and "yes" or "no")
+    else
+        _debug("_scanAllPlugins: Could not get FM.instance")
     end
+
+    local results = {}
+    local seen    = {}
+
+    -- Phase 1: for each disk-discovered plugin, find its live FM instance.
+    _debug("_scanAllPlugins: Phase 1 - scanning disk plugins")
+    local disk_plugins = _getDiskPlugins()
+    _debug("_scanAllPlugins: Found", #disk_plugins, "disk plugins")
     
-    -- Use lfs to list directory
-    local lfs = require("libs/libkoreader-lfs")
-    for entry in lfs.dir(plugins_dir) do
-        if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
-            local plugin_name = entry:gsub("%.koplugin$", "")
-            if not SKIP_KEYS[plugin_name] then
-                -- Check if plugin is loaded in FM
-                local inst = fm and fm[plugin_name]
-                local methods = {}
-                local title = plugin_name
-                local inactive = false
-                
+    for _i, meta in ipairs(disk_plugins) do
+        local dirname = meta.name
+        local fm_key, fm_method
+        _debug("_scanAllPlugins: Checking disk plugin:", dirname)
+
+        if fm then
+            -- Try the exact directory name, then common casing variants.
+            for _i, candidate in ipairs({ dirname, dirname:lower(), dirname:gsub("_",""), dirname:lower():gsub("_","") }) do
+                -- Normal table access, not rawget — matches execution path in sui_bottombar.lua
+                local inst = fm[candidate]
+                _debug("_scanAllPlugins:   trying key '", candidate, "' -> ", type(inst))
                 if inst and type(inst) == "table" then
-                    -- Probe for methods
-                    local probe_list = {
-                        "onShow", "show", "open", "onOpen", "launch",
-                        "onSearchBooks", "onShowStore", "onShowTextEditor",
-                        "onShowWallabag", "onShowCalibre", "onShowDropbox",
-                        "onShowEvernote", "onShowZotero", "onShowPlugin",
-                        "onShowStatistics", "onShowCalendar",
-                    }
-                    for _, m in ipairs(probe_list) do
-                        if type(inst[m]) == "function" then
-                            table.insert(methods, m)
-                            break
-                        end
-                    end
-                    if #methods == 0 then
-                        for k, v in pairs(inst) do
-                            if type(k) == "string" and type(v) == "function" then
-                                if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
-                                    table.insert(methods, k)
-                                    break
-                                end
-                            end
-                        end
-                    end
-                    title = inst.fullname or inst.name or plugin_name
-                else
-                    -- Not in FM - try to get name from _meta.lua
-                    local f = io.open(plugins_dir .. entry .. "/_meta.lua", "r")
-                    if f then
-                        local content = f:read("*a")
-                        f:close()
-                        title = content:match('fullname%s*=%s*"([^"]+)"') or plugin_name
-                        inactive = true
+                    local method = _probeMethod(inst)
+                    _debug("_scanAllPlugins:   found instance, method:", method)
+                    if method then
+                        fm_key    = candidate
+                        fm_method = method
+                        break
                     end
                 end
-                
-                if #methods > 0 or inactive then
-                    table.insert(results, {
-                        fm_key = plugin_name,
-                        fm_method = methods[1] or "onShow",
-                        title = title,
-                        _inactive = inactive,
-                    })
+            end
+        end
+
+        if fm_key and not seen[fm_key] then
+            seen[fm_key] = true
+            results[#results + 1] = { fm_key = fm_key, fm_method = fm_method, title = meta.title }
+            _debug("_scanAllPlugins:   ACTIVE plugin added:", fm_key, "method:", fm_method)
+        elseif not fm_key and not seen[dirname] then
+            -- Installed but not currently active.
+            seen[dirname] = true
+            results[#results + 1] = { fm_key = dirname, fm_method = "onShow", title = meta.title, _inactive = true }
+            _debug("_scanAllPlugins:   INACTIVE plugin added:", name)
+        end
+    end
+
+    -- Phase 2: sweep FM for plugins not found via _meta.lua (e.g. unusual naming).
+    if fm then
+        _debug("_scanAllPlugins: Phase 2 - sweeping FM for unregistered plugins")
+        for key, val in pairs(fm) do
+            if type(key) == "string" and type(val) == "table"
+                    and not _SKIP_KEYS[key] and not seen[key] then
+                local inst_name = type(val.name) == "string" and val.name or nil
+                if inst_name and inst_name ~= "" then
+                    local method = _probeMethod(val)
+                    if method then
+                        seen[key] = true
+                        local disp = (type(val.fullname) == "string" and val.fullname ~= "")
+                            and val.fullname or inst_name
+                        results[#results + 1] = { fm_key = key, fm_method = method, title = disp }
+                        _debug("_scanAllPlugins:   FM sweep found:", key, "name:", inst_name, "method:", method)
+                    end
                 end
             end
         end
     end
-    
-    -- Sort alphabetically
+
     table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
-    
+    _debug("_scanAllPlugins: Final results:", #results, "plugins")
+    for _i, p in ipairs(results) do
+        _debug("  ", _i, ":", p.title, "(key:", p.fm_key, "method:", p.fm_method, p._inactive and "(inactive)" or "")
+    end
     return results
 end
+
+-- ---------------------------------------------------------------------------
+-- Dispatcher action scanner
+-- ---------------------------------------------------------------------------
 
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
@@ -498,7 +489,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             Config.saveCustomQAList(list)
         end
         Config.saveCustomQAConfig(final_id, final_label, path, coll,
-            chosen_icon or default_icon, (fm_key or ""):match("^%s*(.-)%s*$"), (fm_method or ""):match("^%s*(.-)%s*$"), dispatcher_action)
+            chosen_icon or default_icon, fm_key, fm_method, dispatcher_action)
         QA.invalidateCustomQACache()
         plugin:_rebuildAllNavbars()
         if on_done then on_done() end
@@ -603,7 +594,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
     local function openPluginPicker()
-        local plugin_actions = QA.scanPlugins()
+        local plugin_actions = _scanAllPlugins()
         if #plugin_actions == 0 then
             UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
             return
@@ -957,7 +948,7 @@ end
 function QA.showPluginPickerForTab(plugin, pos)
     local ButtonDialog = require("ui/widget/buttondialog")
     local InfoMessage  = require("ui/widget/infomessage")
-    local plugin_actions = QA.scanPlugins()
+    local plugin_actions = _scanAllPlugins()
     if #plugin_actions == 0 then
         UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
         return
