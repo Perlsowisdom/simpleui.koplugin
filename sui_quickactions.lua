@@ -602,7 +602,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                     icon_default_label = _("Default (Plugin)"),
                     on_save = function(inputs)
                         commitQA(sanitize(inputs[1]) or _a.title,
-                            nil, nil, Config.CUSTOM_PLUGIN_ICON, _a.fm_key, _a.fm_method, nil)
+                            nil, nil, Config.CUSTOM_PLUGIN_ICON, sanitizePluginKey(_a.fm_key), _a.fm_method, nil)
                     end,
                 })
             end }}
