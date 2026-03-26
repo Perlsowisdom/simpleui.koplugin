@@ -295,26 +295,40 @@ local function _recordPluginRegistration(plugin_name, plugin_instance, menu_item
         if entry.name == plugin_name then return end
     end
 
+    -- Collect ALL callable methods (not just onShow*)
     local methods = {}
     if plugin_instance then
         for k, v in pairs(plugin_instance) do
-            if type(k) == "string" and type(v) == "function" and k:match("^onShow") then
+            if type(k) == "string" and type(v) == "function" then
                 table.insert(methods, k)
             end
         end
     end
 
-    if #methods == 0 then return end  -- No showable methods, skip
+    -- Use any callable method as launcher (prefer onShow*, onSearch, onLink, etc.)
+    local launcher_method = nil
+    for _, m in ipairs(methods) do
+        if m:match("^onShow") or m:match("^onSearch") or m:match("^onLink") or m:match("^onOpen") then
+            launcher_method = m
+            break
+        end
+    end
+    -- Fallback: use first method
+    if not launcher_method and #methods > 0 then
+        launcher_method = methods[1]
+    end
+
+    if not launcher_method then return end  -- No callable methods, skip
 
     table.insert(_registered_plugin_queue, {
         name = plugin_name,
         module = plugin_instance,
         fm_key = plugin_name,
-        fm_method = methods[1],  -- Use first onShow* method
+        fm_method = launcher_method,
         methods = methods,       -- Store all for later use
     })
 
-    logger.warn("[DEBUG] Plugin registered via hook:", plugin_name, "| methods:", table.concat(methods, ", "))
+    logger.warn("[DEBUG] Plugin registered via hook:", plugin_name, "| launcher:", launcher_method)
 end
 
 -- Hook into a plugin's addToMainMenu to capture registrations
