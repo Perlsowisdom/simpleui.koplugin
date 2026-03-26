@@ -354,76 +354,85 @@ local function _getHookedPlugins()
 end
 
 -- Harvest plugins from FM instance (not just menu_items)
-local function _harvestFMPlugins()
-    logger.warn("[simpleui] _harvestFMPlugins: starting harvest via PluginLoader")
+-- Get all currently loaded plugin instances from PluginLoader
+local function _getLoadedPlugins()
     local ok_pl, PluginLoader = pcall(require, "frontend/pluginloader")
     if not ok_pl or not PluginLoader then
-        logger.warn("[simpleui] _harvestFMPlugins: PluginLoader not available")
+        logger.warn("[simpleui] _getLoadedPlugins: PluginLoader not available")
         return {}
     end
-    local enabled_plugins = PluginLoader:loadPlugins()
-    if type(enabled_plugins) ~= "table" or #enabled_plugins == 0 then
-        logger.warn("[simpleui] _harvestFMPlugins: no enabled plugins found")
-        return {}
-    end
-
-    local results = {}
-    local seen = {}
-
-    for _, plugin in ipairs(enabled_plugins) do
-        local plugin_name = plugin.name
-        if not plugin_name or seen[plugin_name] then goto continue end
-        seen[plugin_name] = true
-
-        -- Build display name: "Filebrowserplus" -> "Filebrowserplus"
-        local display = plugin_name:gsub("^%l", function(c) return c:upper() end)
-
-        -- Find the actual launcher method on the plugin
-        -- Common patterns: onShow* (e.g., onShowFileBrowserPlus), show*, onOpen*
-        local launcher = nil
-        local launcher_name = nil
-
-        -- Try all method patterns case-insensitively
-        if not launcher then
-            local method_prefixes = {"onShow", "show", "open", "onOpen", "launch", "callback"}
-            for method_name, method_fn in pairs(plugin) do
-                if type(method_fn) == "function" then
-                    local pn_lower = plugin_name:lower()
-                    local mn_lower = method_name:lower()
-                    for _, prefix in ipairs(method_prefixes) do
-                        if mn_lower:find("^" .. prefix:lower() .. pn_lower:lower(), 1, true) then
-                            launcher = method_fn
-                            launcher_name = method_name
-                            break
-                        end
-                    end
-                end
-                if launcher then break end
+    
+    -- PluginLoader stores loaded plugins in _cnt by name
+    -- We need to iterate through _cnt to get all loaded plugins
+    local loaded = {}
+    
+    -- Check if PluginLoader has a method to get loaded plugins
+    if type(PluginLoader._cnt) == "table" then
+        for name, plugin in pairs(PluginLoader._cnt) do
+            if type(plugin) == "table" and plugin.name then
+                loaded[#loaded + 1] = plugin
+                logger.warn("[simpleui] _getLoadedPlugins: found loaded plugin:", name)
             end
         end
-
-        -- Fallback: use addToMainMenu as last resort (but warn about it)
-        if not launcher and type(plugin.addToMainMenu) == "function" then
-            launcher = plugin.addToMainMenu
-            launcher_name = "addToMainMenu"
-        end
-
-        -- If we found a launcher, add to results
-        if launcher and launcher_name then
-            results[#results + 1] = {
-                fm_key = plugin_name,
-                fm_method = launcher_name,
-                title = display,
-            }
-            logger.warn("[simpleui] _harvestFMPlugins: found plugin:", plugin_name, "| method:", launcher_name)
-        else
-            logger.warn("[simpleui] _harvestFMPlugins: no launcher found for:", plugin_name)
-        end
-
-        ::continue::
     end
+    
+    -- Also try to get instances if they exist
+    if type(PluginLoader.getInstances) == "function" then
+        local instances = PluginLoader:getInstances()
+        if type(instances) == "table" then
+            for _, plugin in ipairs(instances) do
+                loaded[#loaded + 1] = plugin
+            end
+        end
+    end
+    
+    logger.warn("[simpleui] _getLoadedPlugins: total loaded plugins:", #loaded)
+    return loaded
+end
 
-    logger.warn("[simpleui] _harvestFMPlugins: found", #results, "plugins with launchers")
+local function _harvestFMPlugins()
+    logger.warn("[simpleui] _harvestFMPlugins: starting harvest")
+    
+    -- Clear previous queue to get fresh data
+    _registered_plugin_queue = {}
+    
+    -- First, try to get already-loaded plugins
+    local loaded_plugins = _getLoadedPlugins()
+    
+    -- Hook into each loaded plugin's addToMainMenu
+    for _, plugin in ipairs(loaded_plugins) do
+        if plugin and type(plugin.addToMainMenu) == "function" then
+            logger.warn("[simpleui] _harvestFMPlugins: hooking plugin:", plugin.name)
+            _hookPluginRegistration(plugin)
+        end
+    end
+    
+    -- Now trigger menu registration by calling addToMainMenu on each plugin
+    -- This will populate _registered_plugin_queue via our hooks
+    for _, plugin in ipairs(loaded_plugins) do
+        if plugin and type(plugin.addToMainMenu) == "function" then
+            logger.warn("[simpleui] _harvestFMPlugins: calling addToMainMenu for:", plugin.name)
+            local ok, err = pcall(function()
+                plugin:addToMainMenu({})
+            end)
+            if not ok then
+                logger.warn("[simpleui] _harvestFMPlugins: error calling addToMainMenu:", plugin.name, err)
+            end
+        end
+    end
+    
+    -- Now get results from the queue
+    local results = {}
+    for _, entry in ipairs(_registered_plugin_queue) do
+        results[#results + 1] = {
+            fm_key = entry.fm_key,
+            fm_method = entry.fm_method,
+            title = entry.title or entry.fm_key,
+        }
+        logger.warn("[simpleui] _harvestFMPlugins: result:", entry.fm_key, "| method:", entry.fm_method)
+    end
+    
+    logger.warn("[simpleui] _harvestFMPlugins: found", #results, "plugins")
     return results
 end
 
