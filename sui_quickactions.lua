@@ -369,22 +369,22 @@ local function _harvestFMPlugins()
         local launcher = nil
         local launcher_name = nil
 
-        -- Check for onShow* methods (most common pattern)
-        local onshow_pattern = "onShow" .. plugin_name:gsub("^%l", function(c) return c:upper() end)
-        if type(plugin[onshow_pattern]) == "function" then
-            launcher = plugin[onshow_pattern]
-            launcher_name = onshow_pattern
-        end
-
-        -- Try other common patterns
+        -- Try all method patterns case-insensitively
         if not launcher then
-            for _, pattern in ipairs({"onShow", "show", "open", "onOpen", "launch", "callback"}) do
-                local method_name = pattern .. plugin_name:gsub("^%l", function(c) return c:upper() end)
-                if type(plugin[method_name]) == "function" then
-                    launcher = plugin[method_name]
-                    launcher_name = method_name
-                    break
+            local method_prefixes = {"onShow", "show", "open", "onOpen", "launch", "callback"}
+            for method_name, method_fn in pairs(plugin) do
+                if type(method_fn) == "function" then
+                    local pn_lower = plugin_name:lower()
+                    local mn_lower = method_name:lower()
+                    for _, prefix in ipairs(method_prefixes) do
+                        if mn_lower:find("^" .. prefix:lower() .. pn_lower:lower(), 1, true) then
+                            launcher = method_fn
+                            launcher_name = method_name
+                            break
+                        end
+                    end
                 end
+                if launcher then break end
             end
         end
 
@@ -625,6 +625,11 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                 })
             end }}
         end
+
+        -- Add Cancel button
+        buttons[#buttons + 1] = {{ text = _("Cancel"), callback = function()
+            UIManager:close(plugin._qa_plugin_picker)
+        end }}
 
         plugin._qa_plugin_picker = ButtonDialog:new{
             title = _("Select Plugin"),
