@@ -279,104 +279,183 @@ end
 -- Discovers external plugins by walking KOReader's FileManagerMenu registry.
 -- This is more reliable than filesystem scanning because it only returns
 -- plugins that are actually registered and loaded by KOReader.
-local function _scanRegisteredPlugins()
-    logger.warn("[DEBUG] _scanRegisteredPlugins() called")
-    local results = {}
-    local seen = {}
-    local our_name = "simpleui"
+-- Plugin registration hook system
+-- Instead of scanning (which misses lazy-loaded plugins), we intercept
+-- when plugins register themselves via registerToMainMenu() and queue them.
+-- This gives us exactly what KOReader itself knows about active plugins.
 
-    -- Method 1: Check registered_widgets (fixed typo in key)
-    local registered_widgets = package.loaded["registered_widgets"]
-    if registered_widgets and type(registered_widgets) == "table" then
-        for name, widget in pairs(registered_widgets) do
-            if type(name) == "string" and name ~= our_name and type(widget) == "table" then
-                local method = nil
-                for _, m in ipairs({"onShow", "onShowBookInfo", "onShowColl", "onShowCollList",
-                                     "onShowDictionaryLookup", "onShowWikipediaLookup",
-                                     "onShowFileSearch", "onShowFolderShortcutsDialog",
-                                     "onShowHistory", "show", "open"}) do
-                    if type(widget[m]) == "function" then method = m; break end
-                end
-                if method then
-                    logger.warn("[DEBUG] _scanRegisteredPlugins: found via registered_widgets:", name, "method:", method)
-                    results[#results + 1] = {
-                        fm_key = name,
-                        fm_method = method,
-                        title = name:gsub("^filemanager", ""):gsub("^plugin_", ""):gsub("_", " "),
-                    }
-                    seen[name] = true
-                end
+local _registered_plugin_queue = {}
+
+-- Internal function to record a plugin registration
+local function _recordPluginRegistration(plugin_name, plugin_instance, menu_items)
+    if not plugin_name or plugin_name == "" then return end
+
+    -- Avoid duplicates
+    for _, entry in ipairs(_registered_plugin_queue) do
+        if entry.name == plugin_name then return end
+    end
+
+    local methods = {}
+    if plugin_instance then
+        for k, v in pairs(plugin_instance) do
+            if type(k) == "string" and type(v) == "function" and k:match("^onShow") then
+                table.insert(methods, k)
             end
         end
     end
 
-    -- Method 2: Check FileManagerMenu.menu_items for plugin callbacks
+    if #methods == 0 then return end  -- No showable methods, skip
+
+    table.insert(_registered_plugin_queue, {
+        name = plugin_name,
+        module = plugin_instance,
+        fm_key = plugin_name,
+        fm_method = methods[1],  -- Use first onShow* method
+        methods = methods,       -- Store all for later use
+    })
+
+    logger.warn("[DEBUG] Plugin registered via hook:", plugin_name, "| methods:", table.concat(methods, ", "))
+end
+
+-- Hook into a plugin's addToMainMenu to capture registrations
+-- Call this during plugin init to intercept the registration
+local function _hookPluginRegistration(plugin_instance)
+    if not plugin_instance or not plugin_instance.addToMainMenu then return end
+
+    local original_addToMainMenu = plugin_instance.addToMainMenu
+    local plugin_name = plugin_instance.name or "unknown"
+
+    plugin_instance.addToMainMenu = function(self, menu_items, ...)
+        -- Record this plugin before calling original
+        _recordPluginRegistration(plugin_name, self, menu_items)
+        -- Call original registration
+        return original_addToMainMenu(self, menu_items, ...)
+    end
+end
+
+-- Get all plugins we've captured through hook registration
+-- Returns a table of { name, module, fm_key, fm_method }
+local function _getHookedPlugins()
+    return _registered_plugin_queue
+end
+
+-- Harvest plugins from FM instance (not just menu_items)
+local function _harvestFMPlugins()
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if fm and fm.menu and fm.menu.menu_items then
-        for name, item in pairs(fm.menu.menu_items) do
-            if type(name) == "string" and not seen[name] and name ~= our_name then
-                local plugin_key = item.plugin_key or item.plugin or item.module
-                if type(plugin_key) == "string" and plugin_key ~= our_name then
-                    local has_callback = type(item.callback) == "function"
-                           or type(item.goToPage) == "function" or type(item.onClick) == "function"
-                    if has_callback then
-                        logger.warn("[DEBUG] _scanRegisteredPlugins: found via FileManagerMenu:", name)
-                        results[#results + 1] = {
-                            fm_key = plugin_key,
-                            fm_method = "callback",
-                            title = item.text or item.descr or item.description or item.label or name,
-                        }
-                        seen[name] = true
-                    end
-                end
-            end
-        end
-    end
+    if not fm then return end
 
-    -- Method 3: Scan plugins/ directory for .koplugin folders (safe, no PluginLoader)
-    local search_paths = {
-        "/plugins",
-        "./plugins",
-    }
-    local checked_paths = {}
-    
-    for _, base_path in ipairs(search_paths) do
-        local attr = lfs.attributes(base_path)
-        if attr and attr.mode == "directory" and not checked_paths[base_path] then
-            checked_paths[base_path] = true
-            logger.warn("[DEBUG] _scanRegisteredPlugins: scanning directory:", base_path)
-            for entry in lfs.dir(base_path) do
-                if entry ~= "." and entry ~= ".." then
-                    local full_path = base_path .. "/" .. entry
-                    local entry_attr = lfs.attributes(full_path)
-                    if entry_attr and entry_attr.mode == "directory" 
-                       and entry:match("%.koplugin$") 
-                       and entry ~= "simpleui.koplugin" then
-                        local plugin_name = entry:gsub("%.koplugin$", "")
-                        local meta_path = full_path .. "/_meta.lua"
-                        local meta_attr = lfs.attributes(meta_path)
-                        if meta_attr then
-                            local ok, meta = pcall(dofile, meta_path)
-                            if ok and meta and meta.name then
-                                plugin_name = meta.name
-                            end
+    logger.warn("[DEBUG] _harvestFMPlugins: FM instance found, scanning...")
+
+    -- Method 1: Scan fm directly for plugin instances (catches lazy-loaded plugins)
+    -- KOReader plugins register themselves as properties on the FM instance
+    local seen = {}
+    for k, v in pairs(fm) do
+        if type(k) == "string" and type(v) == "table" and v ~= nil then
+            -- Skip internal FM properties
+            if k ~= "menu" and k ~= "file_chooser" and k ~= "window" and k ~= "input"
+               and k ~= "ges" and k ~= "power" and k ~= "network" and k ~= "stats"
+               and not k:match("^_") then
+                -- Check if this looks like a plugin: has name + onShow* method or addToMainMenu
+                local is_plugin = false
+                local plugin_name = nil
+                local plugin_method = nil
+
+                if type(v.name) == "string" then
+                    is_plugin = true
+                    plugin_name = v.name
+                elseif type(v.addToMainMenu) == "function" then
+                    is_plugin = true
+                    plugin_name = k:gsub("%.koplugin$", ""):gsub("_", " "):gsub("(.)([A-Z])", "%1 %2")
+                end
+
+                if is_plugin and not seen[plugin_name] then
+                    seen[plugin_name] = true
+                    -- Find onShow* methods
+                    local methods = {}
+                    for mname, mval in pairs(v) do
+                        if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
+                            table.insert(methods, mname)
                         end
-                        logger.warn("[DEBUG] _scanRegisteredPlugins: found disk plugin:", plugin_name)
-                        results[#results + 1] = {
-                            fm_key = plugin_name,
-                            fm_method = "callback",
-                            title = plugin_name,
-                        }
+                    end
+                    if #methods > 0 then
+                        table.insert(_registered_plugin_queue, {
+                            name = plugin_name,
+                            module = v,
+                            fm_key = k,
+                            fm_method = methods[1],
+                            methods = methods,
+                        })
+                        logger.warn("[DEBUG] _harvestFMPlugins: found plugin:", plugin_name, "| key:", k, "| method:", methods[1])
                     end
                 end
             end
         end
     end
 
-    logger.warn("[DEBUG] _scanRegisteredPlugins: total registered plugins found:", #results)
-    return results
+    -- Method 2: Also scan menu_items for plugins that registered there
+    if fm.menu and fm.menu.menu_items then
+        for name, item in pairs(fm.menu.menu_items) do
+            if type(name) == "string" and name ~= "dummy" and name ~= "search"
+               and name ~= "open书目" and name ~= "settings" then
+                local plugin_inst = fm[name]
+                if plugin_inst and type(plugin_inst.addToMainMenu) == "function" then
+                    local methods = {}
+                    for mname, mval in pairs(plugin_inst) do
+                        if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
+                            table.insert(methods, mname)
+                        end
+                    end
+                    if #methods > 0 and not seen[plugin_inst.name or name] then
+                        seen[plugin_inst.name or name] = true
+                        table.insert(_registered_plugin_queue, {
+                            name = plugin_inst.name or name,
+                            module = plugin_inst,
+                            fm_key = name,
+                            fm_method = methods[1],
+                            methods = methods,
+                        })
+                        logger.warn("[DEBUG] _harvestFMPlugins: found via menu_items:", name)
+                    end
+                end
+            end
+        end
+    end
 end
+
+-- Main function to get plugins for the picker
+local function _scanRegisteredPlugins()
+    -- If we have hooked plugins, return them
+    if #_registered_plugin_queue > 0 then
+        logger.warn("[DEBUG] _scanRegisteredPlugins: returning", #_registered_plugin_queue, "hooked plugins")
+        return _registered_plugin_queue
+    end
+
+    -- Otherwise try to harvest from FM menu
+    logger.warn("[DEBUG] _scanRegisteredPlugins: no hooked plugins yet, trying FM harvest")
+    _harvestFMPlugins()
+
+    if #_registered_plugin_queue > 0 then
+        return _registered_plugin_queue
+    end
+
+    -- Last resort: check registered_widgets
+    logger.warn("[DEBUG] _scanRegisteredPlugins: trying registered_widgets fallback")
+    local widgets = package.loaded["registered_widgets"]
+    if widgets then
+        for name, mod in pairs(widgets) do
+            if type(name) == "string" and name ~= "dummy" and name ~= "reader" then
+                if mod and type(mod.addToMainMenu) == "function" then
+                    _recordPluginRegistration(name, mod, nil)
+                end
+            end
+        end
+    end
+
+    logger.warn("[DEBUG] _scanRegisteredPlugins: total plugins found:", #_registered_plugin_queue)
+    return _registered_plugin_queue
+end
+
 
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
