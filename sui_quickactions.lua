@@ -341,90 +341,76 @@ end
 
 -- Harvest plugins from FM instance (not just menu_items)
 local function _harvestFMPlugins()
-    -- Harvest plugins using KOReader's PluginLoader system.
-    -- This properly respects the plugins_disabled setting and finds all enabled plugins.
     logger.warn("[simpleui] _harvestFMPlugins: starting harvest via PluginLoader")
-
-    -- Get enabled plugins from PluginLoader (respects plugins_disabled setting)
     local ok_pl, PluginLoader = pcall(require, "frontend/pluginloader")
     if not ok_pl or not PluginLoader then
         logger.warn("[simpleui] _harvestFMPlugins: PluginLoader not available")
-        return
+        return {}
     end
-
-    -- loadPlugins() returns enabled_plugins, disabled_plugins
-    -- It caches results, so calling multiple times is efficient
     local enabled_plugins = PluginLoader:loadPlugins()
-
     if type(enabled_plugins) ~= "table" or #enabled_plugins == 0 then
         logger.warn("[simpleui] _harvestFMPlugins: no enabled plugins found")
-        return
+        return {}
     end
 
-    -- Now we need to find which plugins have registered menu items in FM.
-    -- The PluginLoader stores plugin modules with .name and .path
-    local fm = package.loaded["apps/filemanager/filemanager"]
-    fm = fm and fm.instance
-
+    local results = {}
     local seen = {}
+
     for _, plugin in ipairs(enabled_plugins) do
         local plugin_name = plugin.name
         if not plugin_name or seen[plugin_name] then goto continue end
         seen[plugin_name] = true
 
-        -- Try to find this plugin's menu registration in FM
-        local found_method = nil
-        local found_fm_key = nil
+        -- Build display name: "Filebrowserplus" -> "Filebrowserplus"
+        local display = plugin_name:gsub("^%l", function(c) return c:upper() end)
 
-        if fm then
-            -- Check FM instance for this plugin's registered methods
-            for k, v in pairs(fm) do
-                if type(k) == "string" and type(v) == "table" then
-                    -- Check if this FM key matches the plugin or has useful methods
-                    if k == plugin_name or v.name == plugin_name then
-                        -- Look for useful methods
-                        for _, pattern in ipairs({"onShow", "show", "open", "onOpen", "launch", "callback"}) do
-                            if type(v[pattern]) == "function" then
-                                found_method = pattern
-                                found_fm_key = k
-                                break
-                            end
-                        end
-                        -- Also check addToMainMenu
-                        if not found_method and type(v.addToMainMenu) == "function" then
-                            found_method = "addToMainMenu"
-                            found_fm_key = k
-                        end
-                        if found_method then break end
-                    end
-                end
-            end
+        -- Find the actual launcher method on the plugin
+        -- Common patterns: onShow* (e.g., onShowFileBrowserPlus), show*, onOpen*
+        local launcher = nil
+        local launcher_name = nil
+
+        -- Check for onShow* methods (most common pattern)
+        local onshow_pattern = "onShow" .. plugin_name:gsub("^%l", function(c) return c:upper() end)
+        if type(plugin[onshow_pattern]) == "function" then
+            launcher = plugin[onshow_pattern]
+            launcher_name = onshow_pattern
         end
 
-        -- For plugins without FM methods, try to find a useful method on the plugin itself
-        if not found_method then
+        -- Try other common patterns
+        if not launcher then
             for _, pattern in ipairs({"onShow", "show", "open", "onOpen", "launch", "callback"}) do
-                if type(plugin[pattern]) == "function" then
-                    found_method = pattern
-                    found_fm_key = plugin_name
+                local method_name = pattern .. plugin_name:gsub("^%l", function(c) return c:upper() end)
+                if type(plugin[method_name]) == "function" then
+                    launcher = plugin[method_name]
+                    launcher_name = method_name
                     break
                 end
             end
         end
 
-        -- Only add if we found something useful
-        if found_method then
-            table.insert(_registered_plugin_queue, {
-                name = plugin_name,
-                fm_key = found_fm_key,
-                fm_method = found_method,
-                title = plugin_name,
-            })
-            logger.warn("[simpleui] _harvestFMPlugins: found plugin:", plugin_name, "| key:", found_fm_key, "| method:", found_method)
+        -- Fallback: use addToMainMenu as last resort (but warn about it)
+        if not launcher and type(plugin.addToMainMenu) == "function" then
+            launcher = plugin.addToMainMenu
+            launcher_name = "addToMainMenu (menu only - may not be launchable)"
         end
+
+        -- If we found a launcher, add to results
+        if launcher and launcher_name then
+            results[#results + 1] = {
+                fm_key = plugin_name,
+                fm_method = launcher_name,
+                title = display,
+            }
+            logger.warn("[simpleui] _harvestFMPlugins: found plugin:", plugin_name, "| method:", launcher_name)
+        else
+            logger.warn("[simpleui] _harvestFMPlugins: no launcher found for:", plugin_name)
+        end
+
         ::continue::
     end
-    logger.warn("[simpleui] _harvestFMPlugins: found", #_registered_plugin_queue, "enabled plugins with useful methods")
+
+    logger.warn("[simpleui] _harvestFMPlugins: found", #results, "plugins with launchers")
+    return results
 end
 
 local function _scanRegisteredPlugins()
@@ -718,76 +704,7 @@ function QA.makeMenuItems(plugin)
             pool[#pool + 1] = { id = qa_id, is_default = false }
         end
         table.sort(pool, function(a, b)
-            -- Builds the MultiInputDialog for naming and icon selection.
--- spec fields: { description, text, hint }
--- spec.validate(inputs) -> error string or nil
--- spec.on_save(inputs)
--- spec.icon_default_label
--- spec.title (optional)
-local function _buildSaveDialog(spec)
-    local title = spec.title or dlg_title
-    local active_dialog = nil
-
-    local function openIconPicker()
-        if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
-        QA.showIconPicker(chosen_icon, function(new_icon)
-            chosen_icon = new_icon
-            _buildSaveDialog(spec)
-        end, spec.icon_default_label or _("Icon"), plugin, "_qa_icon_picker")
-    end
-
-    local fields = {}
-    for _, f in ipairs(spec.fields) do
-        fields[#fields + 1] = {
-            description = f.description,
-            text = f.text or "",
-            hint = f.hint,
-        }
-    end
-
-    local buttons = {
-        {
-            text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
-            callback = function()
-                openIconPicker()
-            end,
-        },
-        {
-            text = _("Cancel"),
-            callback = function()
-                UIManager:close(active_dialog)
-                active_dialog = nil
-            end,
-        },
-        {
-            text = _("Save"),
-            is_enter_default = true,
-            callback = function()
-                local inputs = active_dialog:getFields()
-                if spec.validate then
-                    local err = spec.validate(inputs)
-                    if err then
-                        UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
-                        return
-                    end
-                end
-                UIManager:close(active_dialog)
-                active_dialog = nil
-                spec.on_save(inputs)
-            end,
-        },
-    }
-
-    active_dialog = MultiInputDialog:new{
-        title = title,
-        fields = fields,
-        buttons = buttons,
-    }
-    UIManager:show(active_dialog)
-    pcall(function() active_dialog:onShowKeyboard() end)
-end
-
-return QA.getEntry(a.id).label:lower() < QA.getEntry(b.id).label:lower()
+            return QA.getEntry(a.id).label:lower() < QA.getEntry(b.id).label:lower()
         end)
         return pool
     end
