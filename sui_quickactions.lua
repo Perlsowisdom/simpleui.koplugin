@@ -391,7 +391,7 @@ local function _harvestFMPlugins()
         -- Fallback: use addToMainMenu as last resort (but warn about it)
         if not launcher and type(plugin.addToMainMenu) == "function" then
             launcher = plugin.addToMainMenu
-            launcher_name = "addToMainMenu (menu only - may not be launchable)"
+            launcher_name = "addToMainMenu"
         end
 
         -- If we found a launcher, add to results
