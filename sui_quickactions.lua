@@ -347,17 +347,6 @@ local function _harvestFMPlugins()
 
     logger.warn("[DEBUG] _harvestFMPlugins: FM instance found, scanning...")
 
-    -- Get list of known loaded plugins from PluginLoader if available
-    local known_plugins = {}
-    local ok_pl, PluginLoader = pcall(require, "pluginloader")
-    if ok_pl and PluginLoader then
-        for _, plugin in ipairs(PluginLoader:loaded()) do
-            if plugin and plugin.name then
-                known_plugins[plugin.name] = true
-                logger.warn("[DEBUG] _harvestFMPlugins: known plugin from PluginLoader:", plugin.name)
-            end
-        end
-    end
 
     -- Scan FM instance for any plugin-like keys (matches known plugin names)
     local seen = {}
