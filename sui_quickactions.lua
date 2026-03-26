@@ -640,7 +640,11 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             end }}
         end
 
-        plugin._qa_plugin_picker = ButtonDialog:new{ buttons = buttons }
+        plugin._qa_plugin_picker = ButtonDialog:new{
+            title = _("Select Plugin"),
+            width_factor = 0.7,
+            buttons = buttons,
+        }
         UIManager:show(plugin._qa_plugin_picker)
     end
 
@@ -673,18 +677,22 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
     local choice_dialog
-    choice_dialog = ButtonDialog:new{ buttons = {
-        {{ text = _("Collection"), enabled = #collections > 0,
-           callback = function() UIManager:close(choice_dialog); openCollectionPicker() end }},
-        {{ text = _("Folder"),
-           callback = function() UIManager:close(choice_dialog); openPathChooser() end }},
-        {{ text = _("Plugin"),
-           callback = function() UIManager:close(choice_dialog); openPluginPicker() end }},
-        {{ text = _("System Actions"),
-           callback = function() UIManager:close(choice_dialog); openDispatcherPicker() end }},
-        {{ text = _("Cancel"),
-           callback = function() UIManager:close(choice_dialog) end }},
-    }}
+    choice_dialog = ButtonDialog:new{
+        title = _("Quick Action Type"),
+        width_factor = 0.7,
+        buttons = {
+            {{ text = _("Collection"), enabled = #collections > 0,
+               callback = function() UIManager:close(choice_dialog); openCollectionPicker() end }},
+            {{ text = _("Folder"),
+               callback = function() UIManager:close(choice_dialog); openPathChooser() end }},
+            {{ text = _("Plugin"),
+               callback = function() UIManager:close(choice_dialog); openPluginPicker() end }},
+            {{ text = _("System Actions"),
+               callback = function() UIManager:close(choice_dialog); openDispatcherPicker() end }},
+            {{ text = _("Cancel"),
+               callback = function() UIManager:close(choice_dialog) end }},
+        }
+    }
     UIManager:show(choice_dialog)
 end
 
