@@ -274,74 +274,62 @@ local function _scanFMPlugins()
 end
 
 -- Scans the filesystem for installed .koplugin directories to find external
--- plugins that provide onShow* methods but may not be loaded into the FM
--- instance yet (e.g., not in the current plugin list).
+-- plugins that provide onShow* methods but may not be loaded by the FM.
+-- Returns a table of { name = string, path = string, module = table } for each
+-- discovered plugin, or an empty table on error.
 local function _getDiskPlugins()
-    logger.warn("[DEBUG] _getDiskPlugins() called — using filesystem scan only")
-    local lfs = require("libs/libkoreader-lfs")
-    local results = {}
-    local plugin_dirs = {
-        "./plugins",
-        "/mnt/onboard/.koreader/plugins",
-        "/home/.config/koreader/plugins",
-        os.getenv("HOME") .. "/.config/koreader/plugins",
-    }
-    for _, base in ipairs(plugin_dirs) do
-        local attr = lfs.attributes(base)
-        if attr and attr.mode == "directory" then
-            logger.warn("[DEBUG] _getDiskPlugins: scanning directory:", base)
-            for entry_name in lfs.dir(base) do
-                if entry_name:match("%.koplugin$") then
-                    local plugin_path = base .. "/" .. entry_name
-                    local main_path = plugin_path .. "/main.lua"
-                    local main_attr = lfs.attributes(main_path)
-                    if main_attr and main_attr.mode == "file" then
-                        local name = entry_name:gsub("%.koplugin$", "")
-                        local title = name
-                        -- Try to load _meta for title
-                        local meta_ok, meta = pcall(require, "plugins/" .. entry_name .. "/_meta")
-                        if meta_ok and meta then
-                            title = meta.fullname or meta.name or name
+    local plugins = {}
+    local plugin_dirs = { DEFAULT_PLUGIN_PATH, extra_plugin_paths }
+    
+    for _, dir in ipairs(plugin_dirs) do
+        local attr = lfs.attributes(dir)
+        if not attr or attr.mode ~= "directory" then
+            logger.warn("[DEBUG] _getDiskPlugins: skipping non-directory:", dir)
+            goto next_dir
+        end
+        
+        for entry in lfs.dir(dir) do
+            if entry ~= "." and entry ~= ".." then
+                local path = dir.."/"..entry
+                local attr = lfs.attributes(path)
+                
+                if attr and attr.mode == "directory" then
+                    local plugin_root = path
+                    local mainfile = plugin_root.."/main.lua"
+                    
+                    -- Check if main.lua exists
+                    if lfs.attributes(mainfile) then
+                        local ok, plugin_module = pcall(require, mainfile)
+                        
+                        if ok and plugin_module then
+                            -- Validate plugin structure
+                            if type(plugin_module.name) == "string" and 
+                               type(plugin_module.is_doc_only) == "boolean" then
+                                
+                                -- Add to results
+                                table.insert(plugins, {
+                                    name = plugin_module.name,
+                                    path = plugin_root,
+                                    module = plugin_module
+                                })
+                                logger.warn("[DEBUG] _getDiskPlugins: found plugin:", plugin_module.name)
+                            else
+                                logger.warn("[DEBUG] _getDiskPlugins: invalid plugin structure:", entry)
+                            end
                         else
-                            logger.warn("[DEBUG] _getDiskPlugins: could not load _meta for", name)
+                            logger.warn("[DEBUG] _getDiskPlugins: failed to load:", entry)
                         end
-                        -- Try to get a loaded instance from package.loaded
-                        local mod_name = "plugins/" .. entry_name .. "/main"
-                        local instance = package.loaded[mod_name]
-                        if not instance then
-                            local ok_main, main_mod = pcall(require, "plugins/" .. entry_name .. "/main")
-                            if ok_main and main_mod then
-                                instance = main_mod
-                            else
-                                logger.warn("[DEBUG] _getDiskPlugins: could not require main module for", name)
-                            end
-                        end
-                        if instance then
-                            local method = nil
-                            if type(instance.onShow) == "function" then method = "onShow"
-                            elseif type(instance.show) == "function" then method = "show"
-                            elseif type(instance.open) == "function" then method = "open"
-                            elseif type(instance.launch) == "function" then method = "launch"
-                            elseif type(instance.onOpen) == "function" then method = "onOpen"
-                            end
-                            if method then
-                                results[#results+1] = {
-                                    plugin_key = name,
-                                    plugin_method = method,
-                                    title = title
-                                }
-                                logger.warn("[DEBUG] _getDiskPlugins: found plugin with method:", name, method, "title:", title)
-                            else
-                                logger.warn("[DEBUG] _getDiskPlugins: plugin has no onShow/show/open/launch/onOpen:", name)
-                            end
-                        end
+                    else
+                        logger.warn("[DEBUG] _getDiskPlugins: no main.lua at:", mainfile)
                     end
                 end
             end
         end
+        ::next_dir::
     end
-    logger.warn("[DEBUG] _getDiskPlugins: total disk plugins found:", #results)
-    return results
+    
+    logger.warn("[DEBUG] _getDiskPlugins: total disk plugins found:", #plugins)
+    return plugins
 end
 
 local function _scanDispatcherActions()
