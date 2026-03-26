@@ -3,6 +3,11 @@
 --   • Storage: custom QA CRUD, default-action label/icon overrides
 --   • Resolution: getEntry(id) — used by both bottombar and module_quick_actions
 --   • Menus: icon picker, rename dialog, create/edit/delete flows
+--
+-- Both sui_bottombar (buildTabCell) and module_quick_actions (buildQAWidget)
+-- call QA.getEntry(id) so every label/icon change propagates everywhere
+-- automatically.  sui_menu.lua calls QA.makeMenuItems(plugin) to obtain
+-- the Create / Change Icons / Rename sub-menu items.
 
 local UIManager = require("ui/uimanager")
 local Device    = require("device")
@@ -16,14 +21,19 @@ local Config    = require("sui_config")
 local QA = {}
 
 -- ---------------------------------------------------------------------------
--- Icon directory
+-- Icon directory (same as before — single definition now)
 -- ---------------------------------------------------------------------------
 
+-- Resolve icons/custom directory using an absolute path derived from this
+-- file's location so it works on Android (relative paths fail there).
 local _qa_plugin_dir = debug.getinfo(1, "S").source:match("^@(.+/)[^/]+$") or "./"
 QA.ICONS_DIR = _qa_plugin_dir .. "icons/custom"
 
 -- ---------------------------------------------------------------------------
 -- Default-action label / icon overrides
+-- Setting keys: navbar_action_<id>_label  /  navbar_action_<id>_icon
+-- These are the authoritative get/set functions; sui_config.lua delegates
+-- to here for any external callers that still use Config.get/setDefaultAction*.
 -- ---------------------------------------------------------------------------
 
 local function _defaultLabelKey(id) return "navbar_action_" .. id .. "_label" end
@@ -54,12 +64,19 @@ function QA.setDefaultActionIcon(id, icon)
 end
 
 -- ---------------------------------------------------------------------------
--- getEntry(id) — canonical resolver
+-- getEntry(id) — canonical resolver used by ALL rendering code
+--
+-- Returns { icon = path, label = string } for any action id.
+-- Applies label/icon overrides for default actions.
+-- For custom QAs: reads from settings directly (same key as sui_config).
+-- Never returns nil.
 -- ---------------------------------------------------------------------------
 
+-- Module-level sentinel reused for wifi_toggle to avoid per-call allocation.
 local _wifi_entry = { icon = "", label = "" }
 
 function QA.getEntry(id)
+    -- Custom QA
     if id and id:match("^custom_qa_%d+$") then
         local cfg = G_reader_settings:readSetting("navbar_cqa_" .. id) or {}
         local default_icon
@@ -76,22 +93,25 @@ function QA.getEntry(id)
         }
     end
 
+    -- Default action: look up catalogue
     local a = Config.ACTION_BY_ID[id]
     if not a then
         logger.warn("simpleui: QA.getEntry: unknown id " .. tostring(id))
         return { icon = Config.ICON.library, label = tostring(id) }
     end
 
+    -- wifi_toggle: icon is dynamic (on/off state)
     if id == "wifi_toggle" then
         _wifi_entry.icon  = QA.getDefaultActionIcon(id) or Config.wifiIcon()
         _wifi_entry.label = QA.getDefaultActionLabel(id) or a.label
         return _wifi_entry
     end
 
+    -- All other defaults: apply overrides if present
     local lbl_ov  = QA.getDefaultActionLabel(id)
     local icon_ov = QA.getDefaultActionIcon(id)
     if not lbl_ov and not icon_ov then
-        return a
+        return a  -- fast path: catalogue entry, no allocation
     end
     return {
         icon  = icon_ov  or a.icon,
@@ -101,6 +121,8 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Custom QA validity cache
+-- Shared between module_quick_actions slots so it is built at most once per
+-- render cycle. Invalidate after any create/delete.
 -- ---------------------------------------------------------------------------
 
 local _cqa_valid_cache = nil
@@ -109,7 +131,7 @@ function QA.getCustomQAValid()
     if not _cqa_valid_cache then
         local list = Config.getCustomQAList()
         local s = {}
-        for _i, id in ipairs(list) do s[id] = true end
+        for _, id in ipairs(list) do s[id] = true end
         _cqa_valid_cache = s
     end
     return _cqa_valid_cache
@@ -138,6 +160,9 @@ local function _loadCustomIconList()
     return icons
 end
 
+-- on_select(path_or_nil) is called with the chosen icon path, or nil for "reset".
+-- _picker_handle: table where the open dialog will be stored (e.g. plugin table).
+-- picker_key: key on that table (e.g. "_qa_icon_picker").
 function QA.showIconPicker(current_icon, on_select, default_label, _picker_handle, picker_key)
     _picker_handle = _picker_handle or QA
     picker_key     = picker_key     or "_icon_picker"
@@ -179,381 +204,572 @@ function QA.showIconPicker(current_icon, on_select, default_label, _picker_handl
 end
 
 -- ---------------------------------------------------------------------------
--- Plugin scanner
---
--- KOReader's plugin loader stores each plugin on the FileManager (and
--- ReaderUI) instance under the plugin's `name` field from _meta.lua.
--- For example: _meta.lua { name = "calibre" } → fm.calibre = instance
---
--- We scan the live FM instance first (most reliable), then supplement with
--- disk-discovered plugins from _meta.lua for anything not yet active.
---
--- IMPORTANT: use fm[key] (normal access), NOT rawget — KOReader may use
--- __index metamethods, and this matches what sui_bottombar.lua does at
--- execution time:  fm and fm.menu_items and fm[cfg.plugin_key]
+-- Plugin scanner helpers (used by showQuickActionDialog)
 -- ---------------------------------------------------------------------------
 
--- Keys to skip — infrastructure or SimpleUI-handled.
-local _SKIP_KEYS = {
-    simpleui         = true,
-    gestures         = true,
-    backgroundrunner = true,
-    timesync         = true,
-    autowarmth       = true,
-}
-
--- Debug flag — enable by uncommenting or setting via plugin menu
-local _DEBUG = true
-
--- Debug logging helper
-local function _debug(...)
-    if _DEBUG then
-        logger.warn("[simpleui:plugin-debug]", ...)
-    end
-end
-
--- Dump a table (recursive) for debugging
-local function _dumpTable(t, indent, seen)
-    if type(t) ~= "table" then return tostring(t) end
-    seen = seen or {}
-    if seen[t] then return "<circular>" end
-    seen[t] = true
-    indent = indent or 0
-    local lines = {}
-    for k, v in pairs(t) do
-        local kstr = type(k) == "string" and k or "[" .. tostring(k) .. "]"
-        if type(v) == "table" then
-            table.insert(lines, string.rep("  ", indent) .. kstr .. " = {")
-            table.insert(lines, _dumpTable(v, indent + 1, seen))
-            table.insert(lines, string.rep("  ", indent) .. "}")
-        else
-            table.insert(lines, string.rep("  ", indent) .. kstr .. " = " .. tostring(v))
-        end
-    end
-    return table.concat(lines, "\n")
-end
-
--- Ordered probe list — first match wins.
--- Uses the shared constant from Config to match execution.
-local _PROBE_METHODS = Config.PLUGIN_ENTRY_METHODS
-
-local function _probeMethod(inst)
-    if type(inst) ~= "table" then return nil end
-    for _i, m in ipairs(_PROBE_METHODS) do
-        if type(inst[m]) == "function" then return m end
-    end
-    -- Generic sweep for any remaining onShow*/onOpen*/onLaunch*.
-    for k, v in pairs(inst) do
-        if type(k) == "string" and type(v) == "function" then
-            if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
-                return k
-            end
-        end
-    end
-    return nil
-end
-
--- Read name/fullname from a plugin's _meta.lua.
-local function _readPluginMeta(plugin_dir)
-    local f = io.open(plugin_dir .. "_meta.lua", "r")
-    if not f then return nil end
-    local content = f:read("*a")
-    f:close()
-    local function extract(field)
-        return content:match(field .. '%s*=%s*"([^"]+)"')
-            or content:match('%["' .. field .. '"%]%s*=%s*"([^"]+)"')
-    end
-    local name = extract("name")
-    if not name then return nil end
-    return { name = name, fullname = extract("fullname") }
-end
-
--- Sanitize plugin key: remove non-printable characters (fixes garbage bytes in some _meta.lua files)
-local function sanitizePluginKey(key)
-    if not key then return nil end
-    -- Remove all non-printable and space characters
-    return key:gsub('[^%w_%-]', ''):gsub(' ', '')
-end
-
--- Locate KOReader's plugins/ directory.
--- This file: <root>/plugins/simpleui.koplugin/sui_quickactions.lua
-local function _findPluginsDir()
-    -- Walk up from our own path: strip plugin dir to get <root>/plugins/
-    local root = _qa_plugin_dir:match("^(.*/)plugins/[^/]+/$")
-    if root then return root .. "plugins/" end
-    -- DataStorage fallback (works on Android).
-    local ok_ds, ds = pcall(require, "datastorage")
-    if ok_ds and ds and type(ds.getDataDir) == "function" then
-        local d = ds.getDataDir():gsub("/$", "") .. "/plugins/"
-        if lfs.attributes(d, "mode") == "directory" then return d end
-    end
-    return nil
-end
-
-local _plugins_dir = nil
-local _disk_cache  = nil  -- list of { name, title }
-
-local function _getDiskPlugins()
-    if _disk_cache then return _disk_cache end
-    if not _plugins_dir then _plugins_dir = _findPluginsDir() end
-    local result = {}
-    if not _plugins_dir or lfs.attributes(_plugins_dir, "mode") ~= "directory" then
-        logger.warn("simpleui: QA: plugins/ dir not found: " .. tostring(_plugins_dir))
-        _disk_cache = result
-        return result
-    end
-    for entry in lfs.dir(_plugins_dir) do
-        if entry ~= "." and entry ~= ".." and entry ~= "simpleui.koplugin"
-                and entry:match("%.koplugin$") then
-            local meta = _readPluginMeta(_plugins_dir .. entry .. "/")
-            local dirname = entry:gsub("%.koplugin$", "")
-            if dirname and not _SKIP_KEYS[dirname] then
-                result[#result + 1] = {
-                    name  = dirname,
-                    title = (meta and meta.fullname) or dirname,
-                }
-            end
-        end
-    end
-    table.sort(result, function(a, b) return a.title:lower() < b.title:lower() end)
-    _disk_cache = result
-    return result
-end
-
-function QA.invalidatePluginCache()
-    _disk_cache   = nil
-    _plugins_dir  = nil
-end
-
--- Plugin scanner using KORea
-local _debug = logger and function(...) end or function() end
-
--- Cache for PluginLoader results
-local _plugin_cache = nil
-
--- Methods to probe on plugin instances (ordered by likelihood)
-local _PROBE_METHODS = Config.PLUGIN_ENTRY_METHODS
-
--- Probe an instance for a callable method
-local function _probeMethod(inst)
-    if type(inst) ~= "table" then return nil end
-    for _, m in ipairs(_PROBE_METHODS) do
-        if type(inst[m]) == "function" then return m end
-    end
-    return nil
-end
-
--- Main scanner using PluginLoader
--- Proper plugin scanning using PluginLoader
--- NEW SCANNER - Proper instance-based probing
-function _scanAllPlugins()
-    local _debug = logger and function(...) end or function() end
-    
-    _debug("_scanAllPlugins: Starting")
+local function _scanFMPlugins()
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    fm = fm and fm.instance
+    if not fm then return {} end
+    local known = {
+        { key = "history",          method = "onShowHist",                      title = _("History")           },
+        { key = "bookinfo",         method = "onShowBookInfo",                  title = _("Book Info")         },
+        { key = "collections",      method = "onShowColl",                      title = _("Favorites")         },
+        { key = "collections",      method = "onShowCollList",                  title = _("Collections")       },
+        { key = "filesearcher",     method = "onShowFileSearch",                title = _("File Search")       },
+        { key = "folder_shortcuts", method = "onShowFolderShortcutsDialog",     title = _("Folder Shortcuts")  },
+        { key = "dictionary",       method = "onShowDictionaryLookup",          title = _("Dictionary Lookup") },
+        { key = "wikipedia",        method = "onShowWikipediaLookup",           title = _("Wikipedia Lookup")  },
+    }
     local results = {}
-    local seen = {}
-
-    -- Get properly instantiated plugins from PluginLoader
-    local ok_pl, PluginLoader = pcall(require, "frontend/pluginloader")
-    if ok_pl and PluginLoader then
-        local enabled_plugins = PluginLoader:loadPlugins()
-        _debug("_scanAllPlugins: Got", #(enabled_plugins or {}), "enabled plugins")
-        
-        for _, plug in ipairs(enabled_plugins or {}) do
-            -- Get actual instance - this is the key fix!
-            local instance = PluginLoader:getPluginInstance(plug.name)
-            _debug("_scanAllPlugins: Checking", plug.name, "instance:", instance and "yes" or "no")
-            if instance and type(instance) == "table" then
-                local method = _probeMethod(instance)
-                if method and not seen[plug.name] then
-                    seen[plug.name] = true
-                    results[#results + 1] = {
-                        fm_key = plug.name,
-                        fm_method = method,
-                        title = plug.fullname or plug.name,
-                    }
-                    _debug("_scanAllPlugins: Added", plug.name, "via", method)
-                end
-            end
+    for _, entry in ipairs(known) do
+        local mod = fm[entry.key]
+        if mod and type(mod[entry.method]) == "function" then
+            results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
         end
     end
-
-    -- Also scan FM directly for any missed plugins
-    local ok_fm, FM = pcall(require, "apps/filemanager/filemanager")
-    if ok_fm and FM and FM.instance then
-        local fm = FM.instance
-        for key, val in pairs(fm) do
-            if type(key) == "string" and type(val) == "table"
-                    and not _SKIP_KEYS[key] then
-                local inst_name = type(val.name) == "string" and val.name or nil
-                if inst_name and not seen[inst_name] then
-                    local method = _probeMethod(val)
-                    if method then
-                        seen[inst_name] = true
-                        results[#results + 1] = {
-                            fm_key = inst_name,
-                            fm_method = method,
-                            title = type(val.fullname) == "string" and val.fullname or inst_name,
-                        }
-                        _debug("_scanAllPlugins: FM direct", key, "->", inst_name, "via", method)
-                    end
-                end
-            end
-        end
+    local native_keys = {
+        screenshot=true, menu=true, history=true, bookinfo=true, collections=true,
+        filesearcher=true, folder_shortcuts=true, languagesupport=true,
+        dictionary=true, wikipedia=true, devicestatus=true, devicelistener=true,
+        networklistener=true,
+    }
+    local our_name  = "simpleui"
+    local seen_keys = {}
+    local fm_val_to_key = {}
+    for k, v in pairs(fm) do
+        if type(k) == "string" and type(v) == "table" then fm_val_to_key[v] = k end
     end
-
-    table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
-    _debug("_scanAllPlugins: Returning", #results, "plugins")
+    for i = 1, #fm do
+        local val = fm[i]
+        if type(val) ~= "table" or type(val.name) ~= "string" then goto cont end
+        local fm_key = fm_val_to_key[val]
+        if not fm_key or native_keys[fm_key] or seen_keys[fm_key] or fm_key == our_name then goto cont end
+        if type(val.addToMainMenu) ~= "function" then goto cont end
+        seen_keys[fm_key] = true
+        local method = nil
+        for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
+            if type(val[pfx]) == "function" then method = pfx; break end
+        end
+        if not method then
+            local cap = "on" .. fm_key:sub(1,1):upper() .. fm_key:sub(2)
+            if type(val[cap]) == "function" then method = cap end
+        end
+        if method then
+            local raw     = (val.name or fm_key):gsub("^filemanager", "")
+            local display = raw:sub(1,1):upper() .. raw:sub(2)
+            results[#results + 1] = { fm_key = fm_key, fm_method = method, title = display }
+        end
+        ::cont::
+    end
+    table.sort(results, function(a, b) return a.title < b.title end)
     return results
 end
 
-function QA.showPluginPickerForTab(plugin, pos)
-    local ok, err = pcall(function()
-        local ButtonDialog = require("ui/widget/buttondialog")
-        local InfoMessage  = require("ui/widget/infomessage")
+local function _scanDispatcherActions()
+    local ok_d, Dispatcher = pcall(require, "dispatcher")
+    if not ok_d or not Dispatcher then return {} end
+    pcall(function() Dispatcher:init() end)
+    local settingsList, dispatcher_menu_order
+    pcall(function()
+        local fn_idx = 1
+        while true do
+            local name, val = debug.getupvalue(Dispatcher.registerAction, fn_idx)
+            if not name then break end
+            if name == "settingsList"          then settingsList          = val end
+            if name == "dispatcher_menu_order" then dispatcher_menu_order = val end
+            fn_idx = fn_idx + 1
+        end
+    end)
+    if type(settingsList) ~= "table" then return {} end
+    local order = (type(dispatcher_menu_order) == "table" and dispatcher_menu_order)
+        or (function()
+            local t = {}
+            for k in pairs(settingsList) do t[#t+1] = k end
+            table.sort(t)
+            return t
+        end)()
+    local results = {}
+    for _i, action_id in ipairs(order) do
+        local def = settingsList[action_id]
+        if type(def) == "table" and def.title and def.category == "none"
+                and (def.condition == nil or def.condition == true) then
+            results[#results + 1] = { id = action_id, title = tostring(def.title) }
+        end
+    end
+    table.sort(results, function(a, b) return a.title < b.title end)
+    return results
+end
 
-        local plugin_actions = _scanAllPlugins()
-        if not plugin_actions or #plugin_actions == 0 then
+-- ---------------------------------------------------------------------------
+-- Create / Edit dialog
+-- plugin: the SimpleUI plugin instance (for _rebuildAllNavbars)
+-- qa_id:  existing id to edit, or nil to create new
+-- on_done: optional zero-arg callback after save
+-- ---------------------------------------------------------------------------
+
+function QA.showQuickActionDialog(plugin, qa_id, on_done)
+    local MultiInputDialog = require("ui/widget/multiinputdialog")
+    local PathChooser      = require("ui/widget/pathchooser")
+    local InfoMessage      = require("ui/widget/infomessage")
+    local ButtonDialog     = require("ui/widget/buttondialog")
+
+    local getNonFavColl    = Config.getNonFavoritesCollections
+    local collections      = getNonFavColl and getNonFavColl() or {}
+    table.sort(collections, function(a, b) return a:lower() < b:lower() end)
+
+    local cfg         = qa_id and Config.getCustomQAConfig(qa_id) or {}
+    local start_path  = cfg.path or G_reader_settings:readSetting("home_dir") or "/"
+    local chosen_icon = cfg.icon
+    local dlg_title   = qa_id and _("Edit Quick Action") or _("New Quick Action")
+    local TOTAL_H     = require("sui_bottombar").TOTAL_H
+
+    local function iconButtonLabel(default_lbl)
+        if not chosen_icon then return default_lbl or _("Icon: Default") end
+        local fname = chosen_icon:match("([^/]+)$") or chosen_icon
+        local stem  = (fname:match("^(.+)%.[^%.]+$") or fname):gsub("_", " ")
+        return _("Icon") .. ": " .. stem
+    end
+
+    local function commitQA(final_label, path, coll, default_icon, fm_key, fm_method, dispatcher_action)
+        local final_id = qa_id or Config.nextCustomQAId()
+        if not qa_id then
+            local list = Config.getCustomQAList()
+            list[#list + 1] = final_id
+            Config.saveCustomQAList(list)
+        end
+        Config.saveCustomQAConfig(final_id, final_label, path, coll,
+            chosen_icon or default_icon, fm_key, fm_method, dispatcher_action)
+        QA.invalidateCustomQACache()
+        plugin:_rebuildAllNavbars()
+        if on_done then on_done() end
+    end
+
+    local active_dialog = nil
+
+    local function _buildSaveDialog(spec)
+        if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
+
+        local function openIconPicker()
+            if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
+            QA.showIconPicker(chosen_icon, function(new_icon)
+                chosen_icon = new_icon
+                _buildSaveDialog(spec)
+            end, spec.icon_default_label, plugin, "_qa_icon_picker")
+        end
+
+        local fields = {}
+        for _i, f in ipairs(spec.fields) do
+            fields[#fields + 1] = { description = f.description, text = f.text or "", hint = f.hint }
+        end
+
+        active_dialog = MultiInputDialog:new{
+            title  = dlg_title,
+            fields = fields,
+            buttons = {
+                { { text = iconButtonLabel(spec.icon_default_label),
+                    callback = function() openIconPicker() end } },
+                { { text = _("Cancel"),
+                    callback = function() UIManager:close(active_dialog); active_dialog = nil end },
+                  { text = _("Save"), is_enter_default = true,
+                    callback = function()
+                        local inputs = active_dialog:getFields()
+                        if spec.validate then
+                            local err = spec.validate(inputs)
+                            if err then
+                                UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
+                                return
+                            end
+                        end
+                        UIManager:close(active_dialog); active_dialog = nil
+                        spec.on_save(inputs)
+                    end } },
+            },
+        }
+        UIManager:show(active_dialog)
+        pcall(function() active_dialog:onShowKeyboard() end)
+    end
+
+    local sanitize = Config.sanitizeLabel
+
+    local function openPathChooser()
+        UIManager:show(PathChooser:new{
+            select_directory = true, select_file = false, show_files = false,
+            path = start_path, covers_fullscreen = true,
+            height = Screen:getHeight() - TOTAL_H(),
+            onConfirm = function(chosen_path)
+                _buildSaveDialog({
+                    fields = {
+                        { description = _("Name"),
+                          text = cfg.label or (chosen_path:match("([^/]+)$") or ""),
+                          hint = _("e.g. Books…") },
+                        { description = _("Folder"), text = chosen_path, hint = "/path/to/folder" },
+                    },
+                    icon_default_label = _("Default (Folder)"),
+                    validate = function(inputs)
+                        local p = inputs[2] ~= "" and inputs[2] or chosen_path
+                        local attr = lfs.attributes(p)
+                        if not attr then
+                            return string.format(_("Folder not found:\n%s"), p)
+                        end
+                        if attr.mode ~= "directory" then
+                            return string.format(_("Path is not a folder:\n%s"), p)
+                        end
+                    end,
+                    on_save = function(inputs)
+                        local new_path = inputs[2] ~= "" and inputs[2] or chosen_path
+                        commitQA(sanitize(inputs[1]) or (new_path:match("([^/]+)$") or "?"),
+                            new_path, nil, Config.CUSTOM_ICON)
+                    end,
+                })
+            end,
+        })
+    end
+
+    local function openCollectionPicker()
+        local buttons = {}
+        for _i, coll_name in ipairs(collections) do
+            local name = coll_name
+            buttons[#buttons + 1] = {{ text = name, callback = function()
+                UIManager:close(plugin._qa_coll_picker)
+                _buildSaveDialog({
+                    fields = { { description = _("Name"), text = cfg.label or name, hint = _("e.g. Sci-Fi…") } },
+                    icon_default_label = _("Default (Folder)"),
+                    on_save = function(inputs)
+                        commitQA(sanitize(inputs[1]) or name, nil, name, Config.CUSTOM_ICON)
+                    end,
+                })
+            end }}
+        end
+        buttons[#buttons + 1] = {{ text = _("Cancel"),
+            callback = function() UIManager:close(plugin._qa_coll_picker) end }}
+        plugin._qa_coll_picker = ButtonDialog:new{ buttons = buttons }
+        UIManager:show(plugin._qa_coll_picker)
+    end
+
+    local function openPluginPicker()
+        local plugin_actions = _scanFMPlugins()
+        if #plugin_actions == 0 then
             UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
             return
         end
-
         local buttons = {}
-        table.sort(plugin_actions, function(a, b)
-            return (a.title or ""):lower() < (b.title or ""):lower()
-        end)
-
-        local function addToTab(action)
-            local qa_id = Config.nextCustomQAId()
-            local list  = Config.getCustomQAList() or {}
-            list[#list + 1] = qa_id
-            Config.saveCustomQAList(list)
-
-            local label = Config.sanitizeLabel and Config.sanitizeLabel(action.title or action.fm_key) or (action.title or action.fm_key)
-            if label == nil or label == "" then label = action.fm_key or "Plugin" end
-
-            Config.saveCustomQAConfig(
-                qa_id,
-                label,
-                nil,
-                nil,
-                Config.CUSTOM_PLUGIN_ICON,
-                action.fm_key,
-                action.fm_method,
-                nil
-            )
-
-            local tabs = Config.loadTabConfig()
-            if type(tabs) == "table" and pos and pos >= 1 and pos <= #tabs then
-                tabs[pos] = qa_id
-                Config.saveTabConfig(tabs)
-            end
-
-            QA.invalidateCustomQACache()
-            if plugin and plugin._rebuildAllNavbars then plugin:_rebuildAllNavbars() end
-        end
-
+        table.sort(plugin_actions, function(a, b) return a.title:lower() < b.title:lower() end)
         for _i, a in ipairs(plugin_actions) do
             local _a = a
-            buttons[#buttons + 1] = {{
-                text = _a.title or _a.fm_key or "Plugin",
-                callback = function()
-                    UIManager:close(plugin._qa_tab_plugin_picker)
-                    addToTab(_a)
-                end,
-            }}
+            buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                UIManager:close(plugin._qa_plugin_picker)
+                _buildSaveDialog({
+                    fields = { { description = _("Name"), text = cfg.label or _a.title, hint = _("e.g. Rakuyomi…") } },
+                    icon_default_label = _("Default (Plugin)"),
+                    on_save = function(inputs)
+                        commitQA(sanitize(inputs[1]) or _a.title,
+                            nil, nil, Config.CUSTOM_PLUGIN_ICON, _a.fm_key, _a.fm_method, nil)
+                    end,
+                })
+            end }}
         end
-
-        buttons[#buttons + 1] = {{
-            text = _("Cancel"),
-            callback = function() UIManager:close(plugin._qa_tab_plugin_picker) end,
-        }}
-
-        plugin._qa_tab_plugin_picker = ButtonDialog:new{ buttons = buttons }
-        UIManager:show(plugin._qa_tab_plugin_picker)
-        pcall(function() plugin._qa_tab_plugin_picker:onShowKeyboard() end)
-    end)
-
-    if not ok then
-        UIManager:show(require("ui/widget/infomessage"):new{ text = string.format(_("Plugin error: %s"), tostring(err)), timeout = 3 })
+        buttons[#buttons + 1] = {{ text = _("Cancel"),
+            callback = function() UIManager:close(plugin._qa_plugin_picker) end }}
+        plugin._qa_plugin_picker = ButtonDialog:new{ buttons = buttons }
+        UIManager:show(plugin._qa_plugin_picker)
     end
-end
 
-function QA.showDispatcherPickerForTab(plugin, pos)
-    local ok, err = pcall(function()
-        local ButtonDialog = require("ui/widget/buttondialog")
-        local InfoMessage  = require("ui/widget/infomessage")
-
-        if type(_scanDispatcherActions) ~= "function" then
-            UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
-            return
-        end
-
+    local function openDispatcherPicker()
         local actions = _scanDispatcherActions()
-        if not actions or #actions == 0 then
+        if #actions == 0 then
             UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
             return
         end
-
-        local function addToTab(action_id, title)
-            local qa_id = Config.nextCustomQAId()
-            local list  = Config.getCustomQAList() or {}
-            list[#list + 1] = qa_id
-            Config.saveCustomQAList(list)
-
-            local label = Config.sanitizeLabel and Config.sanitizeLabel(title) or title
-            if label == nil or label == "" then label = "Action" end
-
-            Config.saveCustomQAConfig(
-                qa_id,
-                label,
-                nil,
-                nil,
-                Config.CUSTOM_DISPATCHER_ICON,
-                nil,
-                nil,
-                action_id
-            )
-
-            local tabs = Config.loadTabConfig()
-            if type(tabs) == "table" and pos and pos >= 1 and pos <= #tabs then
-                tabs[pos] = qa_id
-                Config.saveTabConfig(tabs)
-            end
-
-            QA.invalidateCustomQACache()
-            if plugin and plugin._rebuildAllNavbars then plugin:_rebuildAllNavbars() end
-        end
-
         local buttons = {}
-        table.sort(actions, function(a, b)
-            return (a.title or ""):lower() < (b.title or ""):lower()
-        end)
-
+        table.sort(actions, function(a, b) return a.title:lower() < b.title:lower() end)
         for _i, a in ipairs(actions) do
             local _a = a
-            buttons[#buttons + 1] = {{
-                text = _a.title or _a.id or "Action",
-                callback = function()
-                    UIManager:close(plugin._qa_tab_dispatcher_picker)
-                    addToTab(_a.id, _a.title)
-                end,
-            }}
+            buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                UIManager:close(plugin._qa_dispatcher_picker)
+                _buildSaveDialog({
+                    fields = { { description = _("Name"), text = cfg.label or _a.title, hint = _("e.g. Sleep, Refresh…") } },
+                    icon_default_label = _("Default (System)"),
+                    on_save = function(inputs)
+                        commitQA(sanitize(inputs[1]) or _a.title,
+                            nil, nil, Config.CUSTOM_DISPATCHER_ICON, nil, nil, _a.id)
+                    end,
+                })
+            end }}
         end
-
-        buttons[#buttons + 1] = {{
-            text = _("Cancel"),
-            callback = function() UIManager:close(plugin._qa_tab_dispatcher_picker) end,
-        }}
-
-        plugin._qa_tab_dispatcher_picker = ButtonDialog:new{ buttons = buttons }
-        UIManager:show(plugin._qa_tab_dispatcher_picker)
-        pcall(function() plugin._qa_tab_dispatcher_picker:onShowKeyboard() end)
-    end)
-
-    if not ok then
-        UIManager:show(require("ui/widget/infomessage"):new{ text = string.format(_("Plugin error: %s"), tostring(err)), timeout = 3 })
+        buttons[#buttons + 1] = {{ text = _("Cancel"),
+            callback = function() UIManager:close(plugin._qa_dispatcher_picker) end }}
+        plugin._qa_dispatcher_picker = ButtonDialog:new{ buttons = buttons }
+        UIManager:show(plugin._qa_dispatcher_picker)
     end
+
+    local choice_dialog
+    choice_dialog = ButtonDialog:new{ buttons = {
+        {{ text = _("Collection"), enabled = #collections > 0,
+           callback = function() UIManager:close(choice_dialog); openCollectionPicker() end }},
+        {{ text = _("Folder"),
+           callback = function() UIManager:close(choice_dialog); openPathChooser() end }},
+        {{ text = _("Plugin"),
+           callback = function() UIManager:close(choice_dialog); openPluginPicker() end }},
+        {{ text = _("System Actions"),
+           callback = function() UIManager:close(choice_dialog); openDispatcherPicker() end }},
+        {{ text = _("Cancel"),
+           callback = function() UIManager:close(choice_dialog) end }},
+    }}
+    UIManager:show(choice_dialog)
+end
+
+-- ---------------------------------------------------------------------------
+-- makeMenuItems(plugin) — returns the items table for the Quick Actions menu
+-- Called from sui_menu.lua; replaces the old makeQuickActionsMenu closure.
+-- ---------------------------------------------------------------------------
+
+function QA.makeMenuItems(plugin)
+    local InfoMessage = require("ui/widget/infomessage")
+    local ConfirmBox  = require("ui/widget/confirmbox")
+    local InputDialog = require("ui/widget/inputdialog")
+
+    local MAX_CUSTOM_QA = Config.MAX_CUSTOM_QA
+
+    -- All overridable actions (default built-ins + custom QAs), sorted by label.
+    local function allActions()
+        local pool = {}
+        for _, a in ipairs(Config.ALL_ACTIONS) do
+            pool[#pool + 1] = { id = a.id, is_default = true }
+        end
+        for _i, qa_id in ipairs(Config.getCustomQAList()) do
+            pool[#pool + 1] = { id = qa_id, is_default = false }
+        end
+        table.sort(pool, function(a, b)
+            return QA.getEntry(a.id).label:lower() < QA.getEntry(b.id).label:lower()
+        end)
+        return pool
+    end
+
+    -- ── Change Icons ─────────────────────────────────────────────────────────
+
+    local function makeChangeIconsMenu()
+        local items = {}
+        for _i, entry in ipairs(allActions()) do
+            local _id         = entry.id
+            local _is_default = entry.is_default
+            items[#items + 1] = {
+                text_func = function()
+                    local lbl        = QA.getEntry(_id).label
+                    local has_custom = _is_default
+                        and QA.getDefaultActionIcon(_id) ~= nil
+                        or (not _is_default and (function()
+                                local c = Config.getCustomQAConfig(_id)
+                                return c.icon ~= nil
+                                    and c.icon ~= Config.CUSTOM_ICON
+                                    and c.icon ~= Config.CUSTOM_PLUGIN_ICON
+                                    and c.icon ~= Config.CUSTOM_DISPATCHER_ICON
+                            end)())
+                    return lbl .. (has_custom and "  ✎" or "")
+                end,
+                callback = function()
+                    local current_icon
+                    if _is_default then
+                        current_icon = QA.getDefaultActionIcon(_id)
+                    else
+                        current_icon = Config.getCustomQAConfig(_id).icon
+                    end
+                    local default_label = QA.getEntry(_id).label .. " (" .. _("default") .. ")"
+                    QA.showIconPicker(current_icon, function(new_icon)
+                        if _is_default then
+                            QA.setDefaultActionIcon(_id, new_icon)
+                        else
+                            local c = Config.getCustomQAConfig(_id)
+                            local type_default
+                            if c.dispatcher_action and c.dispatcher_action ~= "" then
+                                type_default = Config.CUSTOM_DISPATCHER_ICON
+                            elseif c.plugin_key and c.plugin_key ~= "" then
+                                type_default = Config.CUSTOM_PLUGIN_ICON
+                            else
+                                type_default = Config.CUSTOM_ICON
+                            end
+                            Config.saveCustomQAConfig(_id, c.label, c.path, c.collection,
+                                new_icon or type_default,
+                                c.plugin_key, c.plugin_method, c.dispatcher_action)
+                        end
+                        QA.invalidateCustomQACache()
+                        plugin:_rebuildAllNavbars()
+                    end, default_label, plugin, "_qa_icon_picker")
+                end,
+            }
+        end
+        return items
+    end
+
+    -- ── Rename ───────────────────────────────────────────────────────────────
+
+    local function makeRenameMenu()
+        local items = {}
+        for _i, entry in ipairs(allActions()) do
+            local _id         = entry.id
+            local _is_default = entry.is_default
+            items[#items + 1] = {
+                text_func = function()
+                    local lbl        = QA.getEntry(_id).label
+                    local has_custom = _is_default and QA.getDefaultActionLabel(_id) ~= nil
+                    return lbl .. (has_custom and "  ✎" or "")
+                end,
+                callback = function()
+                    local current_label = QA.getEntry(_id).label
+                    local dlg
+                    dlg = InputDialog:new{
+                        title      = _("Rename"),
+                        input      = current_label,
+                        input_hint = _("New name…"),
+                        buttons = {{
+                            {
+                                text     = _("Cancel"),
+                                callback = function() UIManager:close(dlg) end,
+                            },
+                            {
+                                text         = _("Reset"),
+                                enabled_func = function()
+                                    return _is_default and QA.getDefaultActionLabel(_id) ~= nil
+                                end,
+                                callback = function()
+                                    UIManager:close(dlg)
+                                    QA.setDefaultActionLabel(_id, nil)
+                                    plugin:_rebuildAllNavbars()
+                                end,
+                            },
+                            {
+                                text             = _("Save"),
+                                is_enter_default = true,
+                                callback = function()
+                                    local new_name = Config.sanitizeLabel(dlg:getInputText())
+                                    UIManager:close(dlg)
+                                    if not new_name then return end
+                                    if _is_default then
+                                        QA.setDefaultActionLabel(_id, new_name)
+                                    else
+                                        local c = Config.getCustomQAConfig(_id)
+                                        Config.saveCustomQAConfig(_id, new_name,
+                                            c.path, c.collection, c.icon,
+                                            c.plugin_key, c.plugin_method, c.dispatcher_action)
+                                        Config.invalidateTabsCache()
+                                    end
+                                    QA.invalidateCustomQACache()
+                                    plugin:_rebuildAllNavbars()
+                                end,
+                            },
+                        }},
+                    }
+                    UIManager:show(dlg)
+                    pcall(function() dlg:onShowKeyboard() end)
+                end,
+            }
+        end
+        return items
+    end
+
+    -- ── Top-level menu ───────────────────────────────────────────────────────
+
+    local items = {}
+
+    items[#items + 1] = {
+        text               = _("Change Icons"),
+        sub_item_table_func = makeChangeIconsMenu,
+    }
+    items[#items + 1] = {
+        text               = _("Rename"),
+        sub_item_table_func = makeRenameMenu,
+        separator          = true,
+    }
+    items[#items + 1] = {
+        text         = _("Create Quick Action"),
+        enabled_func = function() return #Config.getCustomQAList() < MAX_CUSTOM_QA end,
+        callback     = function()
+            if #Config.getCustomQAList() >= MAX_CUSTOM_QA then
+                UIManager:show(InfoMessage:new{
+                    text    = string.format(_("Maximum %d quick actions reached. Delete one first."), MAX_CUSTOM_QA),
+                    timeout = 2,
+                })
+                return
+            end
+            QA.showQuickActionDialog(plugin, nil, nil)
+        end,
+    }
+
+    local qa_list = Config.getCustomQAList()
+    if #qa_list == 0 then return items end
+    items[#items].separator = true
+
+    -- Pre-read + sort custom QAs by label.
+    local sorted_qa = {}
+    for _i, qa_id in ipairs(qa_list) do
+        local cfg = Config.getCustomQAConfig(qa_id)
+        sorted_qa[#sorted_qa + 1] = { id = qa_id, label = cfg.label or qa_id }
+    end
+    table.sort(sorted_qa, function(a, b) return a.label:lower() < b.label:lower() end)
+
+    for _i, entry in ipairs(sorted_qa) do
+        local _id = entry.id
+        items[#items + 1] = {
+            text_func = function()
+                local c = Config.getCustomQAConfig(_id)
+                local desc
+                if c.dispatcher_action and c.dispatcher_action ~= "" then
+                    desc = "⊕ " .. c.dispatcher_action
+                elseif c.plugin_key and c.plugin_key ~= "" then
+                    desc = "⬡ " .. c.plugin_key .. ":" .. (c.plugin_method or "?")
+                elseif c.collection and c.collection ~= "" then
+                    desc = "⊞ " .. c.collection
+                else
+                    desc = c.path or _("not configured")
+                    if #desc > 34 then desc = "…" .. desc:sub(-31) end
+                end
+                return c.label .. "  |  " .. desc
+            end,
+            sub_item_table_func = function()
+                local sub = {}
+                sub[#sub + 1] = {
+                    text_func = function()
+                        local c = Config.getCustomQAConfig(_id)
+                        local desc
+                        if c.plugin_key and c.plugin_key ~= "" then
+                            desc = "⬡ " .. c.plugin_key .. ":" .. (c.plugin_method or "?")
+                        elseif c.collection and c.collection ~= "" then
+                            desc = "⊞ " .. c.collection
+                        else
+                            desc = c.path or _("not configured")
+                            if #desc > 38 then desc = "…" .. desc:sub(-35) end
+                        end
+                        return c.label .. "  |  " .. desc
+                    end,
+                    enabled = false,
+                }
+                sub[#sub + 1] = {
+                    text     = _("Edit"),
+                    callback = function() QA.showQuickActionDialog(plugin, _id, nil) end,
+                }
+                sub[#sub + 1] = {
+                    text     = _("Delete"),
+                    callback = function()
+                        local c = Config.getCustomQAConfig(_id)
+                        UIManager:show(ConfirmBox:new{
+                            text        = string.format(_("Delete quick action \"%s\"?"), c.label),
+                            ok_text     = _("Delete"),
+                            cancel_text = _("Cancel"),
+                            ok_callback = function()
+                                Config.deleteCustomQA(_id)
+                                Config.invalidateTabsCache()
+                                QA.invalidateCustomQACache()
+                                plugin:_rebuildAllNavbars()
+                            end,
+                        })
+                    end,
+                }
+                return sub
+            end,
+        }
+    end
+
+    return items
 end
 
 return QA
