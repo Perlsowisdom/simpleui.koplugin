@@ -335,7 +335,6 @@ local function _scanRegisteredPlugins()
     end
 
     -- Method 3: Scan plugins/ directory for .koplugin folders (safe, no PluginLoader)
-    local lfs = require("lfs")
     local search_paths = {
         "/plugins",
         "./plugins",
