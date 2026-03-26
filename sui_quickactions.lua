@@ -482,42 +482,30 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         local fm_plugins = _scanFMPlugins()
         logger.warn("[DEBUG] openPluginPicker: FM plugins count:", #fm_plugins)
         local registered_plugins = _scanRegisteredPlugins()
-        logger.warn("[DEBUG] openPluginPicker: Disk plugins count:", #disk_plugins)
+        logger.warn("[DEBUG] openPluginPicker: registered plugins count:", #registered_plugins)
 
-        -- Normalize disk plugins to use same keys as FM plugins (fm_key, fm_method)
-        for _, dp in ipairs(disk_plugins) do
-            dp.fm_key = dp.plugin_key
-            dp.fm_method = dp.plugin_method
-            dp.plugin_key = nil
-            dp.plugin_method = nil
-        end
-
-        -- Merge and deduplicate by fm_key (prefer FM plugins if duplicate)
+        -- Merge FM plugins and registered plugins, deduplicating by fm_key
+        local seen = {}
         local combined = {}
-        local seen_keys = {}
         for _, p in ipairs(fm_plugins) do
+            seen[p.fm_key] = true
             combined[#combined + 1] = p
-            seen_keys[p.fm_key] = true
         end
-        for _, p in ipairs(disk_plugins) do
-            if not seen_keys[p.fm_key] then
+        for _, p in ipairs(registered_plugins) do
+            if not seen[p.fm_key] then
+                seen[p.fm_key] = true
                 combined[#combined + 1] = p
-                seen_keys[p.fm_key] = true
-            else
-                logger.warn("[DEBUG] openPluginPicker: skipping duplicate plugin from disk:", p.fm_key)
             end
         end
+        table.sort(combined, function(a, b) return a.title:lower() < b.title:lower() end)
 
         if #combined == 0 then
             UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
-            logger.warn("[DEBUG] openPluginPicker: no plugins after merge")
             return
         end
 
-        logger.warn("[DEBUG] openPluginPicker: total combined plugins:", #combined)
         local buttons = {}
-        table.sort(combined, function(a, b) return a.title:lower() < b.title:lower() end)
-        for _i, a in ipairs(combined) do
+        for _, a in ipairs(combined) do
             local _a = a
             buttons[#buttons + 1] = {{ text = _a.title, callback = function()
                 UIManager:close(plugin._qa_plugin_picker)
@@ -526,13 +514,13 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                     icon_default_label = _("Default (Plugin)"),
                     on_save = function(inputs)
                         commitQA(sanitize(inputs[1]) or _a.title,
-                            nil, nil, Config.CUSTOM_PLUGIN_ICON, _a.fm_key, _a.fm_method, nil)
+                            nil, nil, Config.CUSTOM_PLUGIN_ICON,
+                            _a.fm_key, _a.fm_method, nil)
                     end,
                 })
             end }}
         end
-        buttons[#buttons + 1] = {{ text = _("Cancel"),
-            callback = function() UIManager:close(plugin._qa_plugin_picker) end }}
+
         plugin._qa_plugin_picker = ButtonDialog:new{ buttons = buttons }
         UIManager:show(plugin._qa_plugin_picker)
     end
