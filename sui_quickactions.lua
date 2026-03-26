@@ -718,7 +718,76 @@ function QA.makeMenuItems(plugin)
             pool[#pool + 1] = { id = qa_id, is_default = false }
         end
         table.sort(pool, function(a, b)
-            return QA.getEntry(a.id).label:lower() < QA.getEntry(b.id).label:lower()
+            -- Builds the MultiInputDialog for naming and icon selection.
+-- spec fields: { description, text, hint }
+-- spec.validate(inputs) -> error string or nil
+-- spec.on_save(inputs)
+-- spec.icon_default_label
+-- spec.title (optional)
+local function _buildSaveDialog(spec)
+    local title = spec.title or dlg_title
+    local active_dialog = nil
+
+    local function openIconPicker()
+        if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
+        QA.showIconPicker(chosen_icon, function(new_icon)
+            chosen_icon = new_icon
+            _buildSaveDialog(spec)
+        end, spec.icon_default_label or _("Icon"), plugin, "_qa_icon_picker")
+    end
+
+    local fields = {}
+    for _, f in ipairs(spec.fields) do
+        fields[#fields + 1] = {
+            description = f.description,
+            text = f.text or "",
+            hint = f.hint,
+        }
+    end
+
+    local buttons = {
+        {
+            text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
+            callback = function()
+                openIconPicker()
+            end,
+        },
+        {
+            text = _("Cancel"),
+            callback = function()
+                UIManager:close(active_dialog)
+                active_dialog = nil
+            end,
+        },
+        {
+            text = _("Save"),
+            is_enter_default = true,
+            callback = function()
+                local inputs = active_dialog:getFields()
+                if spec.validate then
+                    local err = spec.validate(inputs)
+                    if err then
+                        UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
+                        return
+                    end
+                end
+                UIManager:close(active_dialog)
+                active_dialog = nil
+                spec.on_save(inputs)
+            end,
+        },
+    }
+
+    active_dialog = MultiInputDialog:new{
+        title = title,
+        fields = fields,
+        buttons = buttons,
+    }
+    UIManager:show(active_dialog)
+    pcall(function() active_dialog:onShowKeyboard() end)
+end
+
+return QA.getEntry(a.id).label:lower() < QA.getEntry(b.id).label:lower()
         end)
         return pool
     end
@@ -947,6 +1016,75 @@ function QA.makeMenuItems(plugin)
     end
 
     return items
+end
+
+-- Builds the MultiInputDialog for naming and icon selection.
+-- spec fields: { description, text, hint }
+-- spec.validate(inputs) -> error string or nil
+-- spec.on_save(inputs)
+-- spec.icon_default_label
+-- spec.title (optional)
+local function _buildSaveDialog(spec)
+    local title = spec.title or dlg_title
+    local active_dialog = nil
+
+    local function openIconPicker()
+        if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
+        QA.showIconPicker(chosen_icon, function(new_icon)
+            chosen_icon = new_icon
+            _buildSaveDialog(spec)
+        end, spec.icon_default_label or _("Icon"), plugin, "_qa_icon_picker")
+    end
+
+    local fields = {}
+    for _, f in ipairs(spec.fields) do
+        fields[#fields + 1] = {
+            description = f.description,
+            text = f.text or "",
+            hint = f.hint,
+        }
+    end
+
+    local buttons = {
+        {
+            text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
+            callback = function()
+                openIconPicker()
+            end,
+        },
+        {
+            text = _("Cancel"),
+            callback = function()
+                UIManager:close(active_dialog)
+                active_dialog = nil
+            end,
+        },
+        {
+            text = _("Save"),
+            is_enter_default = true,
+            callback = function()
+                local inputs = active_dialog:getFields()
+                if spec.validate then
+                    local err = spec.validate(inputs)
+                    if err then
+                        UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
+                        return
+                    end
+                end
+                UIManager:close(active_dialog)
+                active_dialog = nil
+                spec.on_save(inputs)
+            end,
+        },
+    }
+
+    active_dialog = MultiInputDialog:new{
+        title = title,
+        fields = fields,
+        buttons = buttons,
+    }
+    UIManager:show(active_dialog)
+    pcall(function() active_dialog:onShowKeyboard() end)
 end
 
 return QA
