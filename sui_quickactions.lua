@@ -347,31 +347,39 @@ local function _harvestFMPlugins()
 
     logger.warn("[DEBUG] _harvestFMPlugins: FM instance found, scanning...")
 
-    -- Method 1: Scan fm directly for plugin instances (catches lazy-loaded plugins)
-    -- KOReader plugins register themselves as properties on the FM instance
+    -- Get list of known loaded plugins from PluginLoader if available
+    local known_plugins = {}
+    local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    if ok_pl and PluginLoader then
+        for _, plugin in ipairs(PluginLoader:loaded()) do
+            if plugin and plugin.name then
+                known_plugins[plugin.name] = true
+                logger.warn("[DEBUG] _harvestFMPlugins: known plugin from PluginLoader:", plugin.name)
+            end
+        end
+    end
+
+    -- Scan FM instance for any plugin-like keys (matches known plugin names)
     local seen = {}
     for k, v in pairs(fm) do
-        if type(k) == "string" and type(v) == "table" and v ~= nil then
+        if type(k) == "string" and type(v) == "table" and not k:match("^_") then
             -- Skip internal FM properties
-            if k ~= "menu" and k ~= "file_chooser" and k ~= "window" and k ~= "input"
-               and k ~= "ges" and k ~= "power" and k ~= "network" and k ~= "stats"
-               and not k:match("^_") then
-                -- Check if this looks like a plugin: has name + onShow* method or addToMainMenu
-                local is_plugin = false
-                local plugin_name = nil
-                local plugin_method = nil
+            local internal = {
+                menu=true, file_chooser=true, window=true, input=true,
+                ges=true, power=true, network=true, stats=true, focus=true,
+                registerTouchZones=true, rebuildAllNavbars=true,
+                footer=true, header=true, texteditor=true,
+            }
+            if internal[k] then
+                goto continue
+            end
 
-                if type(v.name) == "string" then
-                    is_plugin = true
-                    plugin_name = v.name
-                elseif type(v.addToMainMenu) == "function" then
-                    is_plugin = true
-                    plugin_name = k:gsub("%.koplugin$", ""):gsub("_", " "):gsub("(.)([A-Z])", "%1 %2")
-                end
-
-                if is_plugin and not seen[plugin_name] then
+            -- Check if this key matches a known plugin name
+            if known_plugins[k] or known_plugins[v.name] then
+                local plugin_name = v.name or k
+                if not seen[plugin_name] then
                     seen[plugin_name] = true
-                    -- Find onShow* methods
+                    -- Find onShow* methods on this plugin
                     local methods = {}
                     for mname, mval in pairs(v) do
                         if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
@@ -387,35 +395,61 @@ local function _harvestFMPlugins()
                             methods = methods,
                         })
                         logger.warn("[DEBUG] _harvestFMPlugins: found plugin:", plugin_name, "| key:", k, "| method:", methods[1])
+                    else
+                        logger.warn("[DEBUG] _harvestFMPlugins: plugin has no onShow methods:", plugin_name, "| key:", k)
                     end
                 end
             end
+
+            -- Also check if v looks like a plugin by having .name
+            if type(v.name) == "string" and not seen[v.name] then
+                local methods = {}
+                for mname, mval in pairs(v) do
+                    if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
+                        table.insert(methods, mname)
+                    end
+                end
+                if #methods > 0 then
+                    seen[v.name] = true
+                    table.insert(_registered_plugin_queue, {
+                        name = v.name,
+                        module = v,
+                        fm_key = k,
+                        fm_method = methods[1],
+                        methods = methods,
+                    })
+                    logger.warn("[DEBUG] _harvestFMPlugins: found plugin by .name:", v.name, "| key:", k)
+                end
+            end
+            ::continue::
         end
     end
 
-    -- Method 2: Also scan menu_items for plugins that registered there
+    -- Scan menu_items to find plugins that registered there
     if fm.menu and fm.menu.menu_items then
         for name, item in pairs(fm.menu.menu_items) do
-            if type(name) == "string" and name ~= "dummy" and name ~= "search"
-               and name ~= "open书目" and name ~= "settings" then
+            if type(name) == "string" then
+                -- Try to find the plugin instance on FM
                 local plugin_inst = fm[name]
-                if plugin_inst and type(plugin_inst.addToMainMenu) == "function" then
-                    local methods = {}
-                    for mname, mval in pairs(plugin_inst) do
-                        if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
-                            table.insert(methods, mname)
+                if plugin_inst and type(plugin_inst) == "table" and type(plugin_inst.name) == "string" then
+                    if not seen[plugin_inst.name] then
+                        local methods = {}
+                        for mname, mval in pairs(plugin_inst) do
+                            if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
+                                table.insert(methods, mname)
+                            end
                         end
-                    end
-                    if #methods > 0 and not seen[plugin_inst.name or name] then
-                        seen[plugin_inst.name or name] = true
-                        table.insert(_registered_plugin_queue, {
-                            name = plugin_inst.name or name,
-                            module = plugin_inst,
-                            fm_key = name,
-                            fm_method = methods[1],
-                            methods = methods,
-                        })
-                        logger.warn("[DEBUG] _harvestFMPlugins: found via menu_items:", name)
+                        if #methods > 0 then
+                            seen[plugin_inst.name] = true
+                            table.insert(_registered_plugin_queue, {
+                                name = plugin_inst.name,
+                                module = plugin_inst,
+                                fm_key = name,
+                                fm_method = methods[1],
+                                methods = methods,
+                            })
+                            logger.warn("[DEBUG] _harvestFMPlugins: found via menu_items:", name, "->", plugin_inst.name)
+                        end
                     end
                 end
             end
