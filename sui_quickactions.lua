@@ -341,109 +341,83 @@ end
 
 -- Harvest plugins from FM instance (not just menu_items)
 local function _harvestFMPlugins()
+    -- KOReader plugins register menu items when they load (e.g. menu_items["bookfusion"] = { text="BookFusion", callback=... })
+    -- We scan these for plugin-like entries and check if the corresponding FM key has useful methods.
+    logger.warn("[simpleui] _harvestFMPlugins: starting harvest")
+
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if not fm then return end
+    if not fm then
+        logger.warn("[simpleui] _harvestFMPlugins: FM not available")
+        return
+    end
 
-    logger.warn("[DEBUG] _harvestFMPlugins: FM instance found, scanning...")
+    -- Get the FileManagerMenu (where plugins register their menu items)
+    -- In KOReader, plugins call menu:registerToMainMenu({name="pluginname", ...}) during init
+    local fm_menu = fm.menu
+    if not fm_menu then
+        -- Fallback: try to get via the menu module directly
+        local ok, FMMenu = pcall(require, "apps/filemanager/filemanagermenu")
+        if ok and FMMenu then
+            fm_menu = FMMenu
+        end
+    end
 
+    -- Internal native menu items we should skip
+    local native_items = {
+        history=true, bookinfo=true, collections=true, dictionary=true,
+        wikipedia=true, search=true, folder_shortcuts=true,
+        file_searcher=true, advanced_settings=true, plugin_management=true,
+        exit=true, restart=true, screenshot=true, language=true,
+        genders=true, about=true, open_next=true,
+    }
 
-    -- Scan FM instance for any plugin-like keys (matches known plugin names)
+    -- Scan FM instance keys for tables that have plugin-like properties
+    -- and match against menu_items names
     local seen = {}
     for k, v in pairs(fm) do
         if type(k) == "string" and type(v) == "table" and not k:match("^_") then
-            -- Skip internal FM properties
-            local internal = {
-                menu=true, file_chooser=true, window=true, input=true,
-                ges=true, power=true, network=true, stats=true, focus=true,
-                registerTouchZones=true, rebuildAllNavbars=true,
-                footer=true, header=true, texteditor=true,
-            }
-            if internal[k] then
-                goto continue
-            end
+            -- Skip obvious internal FM properties
+            if native_items[k] then goto continue end
+            if k == "input" or k == "ges" or k == "power" or k == "network" then goto continue end
+            if k == "window" or k == "footer" or k == "header" then goto continue end
+            if k == "file_chooser" or k == "focus" then goto continue end
 
-            -- Check if this key matches a known plugin name
-            if known_plugins[k] or known_plugins[v.name] then
-                local plugin_name = v.name or k
+            -- Check if this FM key has a name (common plugin pattern)
+            if type(v.name) == "string" and v.name ~= "" then
+                local plugin_name = v.name
                 if not seen[plugin_name] then
                     seen[plugin_name] = true
-                    -- Find onShow* methods on this plugin
-                    local methods = {}
-                    for mname, mval in pairs(v) do
-                        if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
-                            table.insert(methods, mname)
+
+                    -- Look for useful methods
+                    local useful_method = nil
+                    for _, pattern in ipairs({"onShow", "show", "open", "onOpen", "launch", "callback"}) do
+                        if type(v[pattern]) == "function" then
+                            useful_method = pattern
+                            break
                         end
                     end
-                    if #methods > 0 then
+
+                    -- Also check if it has addToMainMenu (definitely a plugin)
+                    local has_menu_reg = type(v.addToMainMenu) == "function"
+
+                    if useful_method or has_menu_reg then
                         table.insert(_registered_plugin_queue, {
                             name = plugin_name,
-                            module = v,
                             fm_key = k,
-                            fm_method = methods[1],
-                            methods = methods,
+                            fm_method = useful_method or (has_menu_reg and "addToMainMenu"),
+                            title = plugin_name,
                         })
-                        logger.warn("[DEBUG] _harvestFMPlugins: found plugin:", plugin_name, "| key:", k, "| method:", methods[1])
-                    else
-                        logger.warn("[DEBUG] _harvestFMPlugins: plugin has no onShow methods:", plugin_name, "| key:", k)
+                        logger.warn("[simpleui] _harvestFMPlugins: found:", plugin_name, "| key:", k, "| method:", useful_method)
                     end
                 end
             end
 
-            -- Also check if v looks like a plugin by having .name
-            if type(v.name) == "string" and not seen[v.name] then
-                local methods = {}
-                for mname, mval in pairs(v) do
-                    if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
-                        table.insert(methods, mname)
-                    end
-                end
-                if #methods > 0 then
-                    seen[v.name] = true
-                    table.insert(_registered_plugin_queue, {
-                        name = v.name,
-                        module = v,
-                        fm_key = k,
-                        fm_method = methods[1],
-                        methods = methods,
-                    })
-                    logger.warn("[DEBUG] _harvestFMPlugins: found plugin by .name:", v.name, "| key:", k)
-                end
-            end
             ::continue::
         end
     end
 
-    -- Scan menu_items to find plugins that registered there
-    if fm.menu and fm.menu.menu_items then
-        for name, item in pairs(fm.menu.menu_items) do
-            if type(name) == "string" then
-                -- Try to find the plugin instance on FM
-                local plugin_inst = fm[name]
-                if plugin_inst and type(plugin_inst) == "table" and type(plugin_inst.name) == "string" then
-                    if not seen[plugin_inst.name] then
-                        local methods = {}
-                        for mname, mval in pairs(plugin_inst) do
-                            if type(mname) == "string" and type(mval) == "function" and mname:match("^onShow") then
-                                table.insert(methods, mname)
-                            end
-                        end
-                        if #methods > 0 then
-                            seen[plugin_inst.name] = true
-                            table.insert(_registered_plugin_queue, {
-                                name = plugin_inst.name,
-                                module = plugin_inst,
-                                fm_key = name,
-                                fm_method = methods[1],
-                                methods = methods,
-                            })
-                            logger.warn("[DEBUG] _harvestFMPlugins: found via menu_items:", name, "->", plugin_inst.name)
-                        end
-                    end
-                end
-            end
-        end
-    end
+    logger.warn("[simpleui] _harvestFMPlugins: done, found:", #_registered_plugin_queue)
 end
 
 -- Main function to get plugins for the picker
