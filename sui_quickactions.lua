@@ -285,47 +285,45 @@ local function _scanRegisteredPlugins()
     local seen = {}
     local our_name = "simpleui"
 
-    -- Try registered_widgets first (most reliable)
-    local registered_widgets = package.loaded[" registered_widgets"]
+    -- Method 1: Check registered_widgets (fixed typo in key)
+    local registered_widgets = package.loaded["registered_widgets"]
     if registered_widgets and type(registered_widgets) == "table" then
         for name, widget in pairs(registered_widgets) do
-            if type(name) == "string" and name ~= our_name
-               and type(widget) == "table"
-               and (type(widget.onShow) == "function" or type(widget.onShowBookInfo) == "function"
-                    or type(widget.onShowColl) == "function" or type(widget.onShowCollList) == "function"
-                    or type(widget.onShowDictionaryLookup) == "function" or type(widget.onShowWikipediaLookup) == "function"
-                    or type(widget.onShowFileSearch) == "function" or type(widget.onShowFolderShortcutsDialog) == "function")
-            then
-                logger.warn("[DEBUG] _scanRegisteredPlugins: found via registered_widgets:", name)
-                results[#results + 1] = {
-                    fm_key = name,
-                    fm_method = "onShow",
-                    title = name:gsub("^filemanager", ""):gsub("^plugin_", ""):gsub("_", " "):gsub("(%l)(%w*)", function(a,b) return a:upper()..b end),
-                }
-                seen[name] = true
+            if type(name) == "string" and name ~= our_name and type(widget) == "table" then
+                local method = nil
+                for _, m in ipairs({"onShow", "onShowBookInfo", "onShowColl", "onShowCollList",
+                                     "onShowDictionaryLookup", "onShowWikipediaLookup",
+                                     "onShowFileSearch", "onShowFolderShortcutsDialog",
+                                     "onShowHistory", "show", "open"}) do
+                    if type(widget[m]) == "function" then method = m; break end
+                end
+                if method then
+                    logger.warn("[DEBUG] _scanRegisteredPlugins: found via registered_widgets:", name, "method:", method)
+                    results[#results + 1] = {
+                        fm_key = name,
+                        fm_method = method,
+                        title = name:gsub("^filemanager", ""):gsub("^plugin_", ""):gsub("_", " "),
+                    }
+                    seen[name] = true
+                end
             end
         end
     end
 
-    -- Also check FileManagerMenu.menu_items
-    local FileManagerMenu = package.loaded["ui/uimanager"] and package.loaded["ui/uimanager"]._menu
-    if not FileManagerMenu then
-        local fm = package.loaded["apps/filemanager/filemanager"]
-        if fm and fm.instance and fm.instance.menu then
-            FileManagerMenu = fm.instance.menu
-        end
-    end
-    if FileManagerMenu and FileManagerMenu.menu_items then
-        for name, item in pairs(FileManagerMenu.menu_items) do
+    -- Method 2: Check FileManagerMenu.menu_items for plugin callbacks
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    fm = fm and fm.instance
+    if fm and fm.menu and fm.menu.menu_items then
+        for name, item in pairs(fm.menu.menu_items) do
             if type(name) == "string" and not seen[name] and name ~= our_name then
-                local plugin_key = item.plugin_key or item.plugin or item.module or item.name
+                local plugin_key = item.plugin_key or item.plugin or item.module
                 if type(plugin_key) == "string" and plugin_key ~= our_name then
                     local has_callback = type(item.callback) == "function"
                            or type(item.goToPage) == "function" or type(item.onClick) == "function"
                     if has_callback then
                         logger.warn("[DEBUG] _scanRegisteredPlugins: found via FileManagerMenu:", name)
                         results[#results + 1] = {
-                            fm_key = name,
+                            fm_key = plugin_key,
                             fm_method = "callback",
                             title = item.text or item.descr or item.description or item.label or name,
                         }
@@ -336,10 +334,50 @@ local function _scanRegisteredPlugins()
         end
     end
 
+    -- Method 3: Scan plugins/ directory for .koplugin folders (safe, no PluginLoader)
+    local lfs = require("lfs")
+    local search_paths = {
+        "/plugins",
+        "./plugins",
+    }
+    local checked_paths = {}
+    
+    for _, base_path in ipairs(search_paths) do
+        local attr = lfs.attributes(base_path)
+        if attr and attr.mode == "directory" and not checked_paths[base_path] then
+            checked_paths[base_path] = true
+            logger.warn("[DEBUG] _scanRegisteredPlugins: scanning directory:", base_path)
+            for entry in lfs.dir(base_path) do
+                if entry ~= "." and entry ~= ".." then
+                    local full_path = base_path .. "/" .. entry
+                    local entry_attr = lfs.attributes(full_path)
+                    if entry_attr and entry_attr.mode == "directory" 
+                       and entry:match("%.koplugin$") 
+                       and entry ~= "simpleui.koplugin" then
+                        local plugin_name = entry:gsub("%.koplugin$", "")
+                        local meta_path = full_path .. "/_meta.lua"
+                        local meta_attr = lfs.attributes(meta_path)
+                        if meta_attr then
+                            local ok, meta = pcall(dofile, meta_path)
+                            if ok and meta and meta.name then
+                                plugin_name = meta.name
+                            end
+                        end
+                        logger.warn("[DEBUG] _scanRegisteredPlugins: found disk plugin:", plugin_name)
+                        results[#results + 1] = {
+                            fm_key = plugin_name,
+                            fm_method = "callback",
+                            title = plugin_name,
+                        }
+                    end
+                end
+            end
+        end
+    end
+
     logger.warn("[DEBUG] _scanRegisteredPlugins: total registered plugins found:", #results)
     return results
 end
-
 
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
