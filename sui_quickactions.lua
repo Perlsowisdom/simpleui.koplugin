@@ -208,9 +208,13 @@ end
 -- ---------------------------------------------------------------------------
 
 local function _scanFMPlugins()
+    logger.warn("[DEBUG] _scanFMPlugins() called")  -- DEBUG
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if not fm then return {} end
+    if not fm then
+        logger.warn("[DEBUG] _scanFMPlugins: fm.instance not available")
+        return {} end
+    logger.warn("[DEBUG] _scanFMPlugins: fm ok, starting scan")
     local known = {
         { key = "history",          method = "onShowHist",                      title = _("History")           },
         { key = "bookinfo",         method = "onShowBookInfo",                  title = _("Book Info")         },
@@ -225,6 +229,7 @@ local function _scanFMPlugins()
     for _, entry in ipairs(known) do
         local mod = fm[entry.key]
         if mod and type(mod[entry.method]) == "function" then
+            logger.warn("[DEBUG] _scanFMPlugins: found built-in FM plugin:", entry.key)
             results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
         end
     end
@@ -258,11 +263,150 @@ local function _scanFMPlugins()
         if method then
             local raw     = (val.name or fm_key):gsub("^filemanager", "")
             local display = raw:sub(1,1):upper() .. raw:sub(2)
+            logger.warn("[DEBUG] _scanFMPlugins: discovered FM plugin:", fm_key, "method:", method)
             results[#results + 1] = { fm_key = fm_key, fm_method = method, title = display }
         end
         ::cont::
     end
     table.sort(results, function(a, b) return a.title < b.title end)
+    logger.warn("[DEBUG] _scanFMPlugins: total FM plugins found:", #results)
+    return results
+end
+
+-- Scans the filesystem for installed .koplugin directories to find external
+-- plugins that provide onShow* methods but may not be loaded into the FM
+-- instance yet (e.g., not in the current plugin list).
+local function _getDiskPlugins()
+    logger.warn("[DEBUG] _getDiskPlugins() called")  -- DEBUG
+    local PluginLoader_ok, PluginLoader = pcall(require, "frontend/pluginloader")
+    if not PluginLoader_ok or not PluginLoader then
+        logger.warn("[DEBUG] _getDiskPlugins: PluginLoader not available")
+        return {} end
+
+    local loader = PluginLoader:getInstance()
+    if not loader then
+        logger.warn("[DEBUG] _getDiskPlugins: PluginLoader:getInstance() returned nil")
+        return {} end
+
+    -- Try to get all plugins via getPlugins() if available
+    local all_plugins = nil
+    local ok_get = pcall(function() all_plugins = loader:getPlugins() end)
+    if not ok_get then
+        logger.warn("[DEBUG] _getDiskPlugins: loader:getPlugins() method not available or errored")
+    end
+
+    if type(all_plugins) ~= "table" then
+        logger.warn("[DEBUG] _getDiskPlugins: getPlugins() did not return a table, trying fallback filesystem scan")
+        all_plugins = {}
+        -- Determine plugins directory: check common KOReader paths
+        local home_dir = os.getenv("HOME") or os.getenv("USERPROFILE") or "/"
+        local candidate_dirs = {
+            home_dir .. "/.config/koreader/plugins/",
+            home_dir .. "/.koreader/plugins/",
+            "/usr/share/koreader/plugins/",
+            "/opt/koreader/plugins/",
+        }
+        local plugins_dir = nil
+        for _, dir in ipairs(candidate_dirs) do
+            local attr = lfs.attributes(dir)
+            if attr and attr.mode == "directory" then
+                plugins_dir = dir
+                break
+            end
+        end
+        if not plugins_dir then
+            logger.warn("[DEBUG] _getDiskPlugins: could not locate plugins directory")
+            return {}
+        end
+        logger.warn("[DEBUG] _getDiskPlugins: scanning plugins directory:", plugins_dir)
+        for entry_name in lfs.dir(plugins_dir) do
+            if entry_name:match("%.koplugin$") then
+                local plugin_path = plugins_dir .. "/" .. entry_name
+                local meta_path = plugin_path .. "/_meta.lua"
+                local meta_attr = lfs.attributes(meta_path)
+                if meta_attr and meta_attr.mode == "file" then
+                    logger.warn("[DEBUG] _getDiskPlugins: found plugin dir:", entry_name)
+                    local ok_meta, meta = pcall(dofile, meta_path)
+                    if ok_meta and meta and type(meta) == "table" then
+                        local name = meta.name or entry_name:gsub("%.koplugin$", "")
+                        local title = meta.fullname or meta.name or name
+                        logger.warn("[DEBUG] _getDiskPlugins: meta loaded:", name, "title:", title)
+                        all_plugins[name] = { name = name, fullname = title, _meta_path = meta_path, _plugin_path = plugin_path }
+                    else
+                        logger.warn("[DEBUG] _getDiskPlugins: failed to load _meta.lua from", meta_path)
+                    end
+                else
+                    logger.warn("[DEBUG] _getDiskPlugins: no _meta.lua in", plugin_path)
+                end
+            end
+        end
+    end
+
+    local results = {}
+    for name, plugin_mod in pairs(all_plugins) do
+        logger.warn("[DEBUG] _getDiskPlugins: examining plugin:", name)
+        -- Skip SimpleUI itself and FileManager (core)
+        if name == "simpleui" or name == "filemanager" then
+            logger.warn("[DEBUG] _getDiskPlugins: skipping built-in plugin:", name)
+            goto continue end
+
+        -- Probe for onShow* methods. First try via PluginLoader's getPluginInstance
+        -- to avoid loading the plugin twice. If that fails, try to load main.lua directly.
+        local instance = nil
+        if loader.getPluginInstance then
+            local ok_inst, inst = pcall(function() return loader:getPluginInstance(name) end)
+            if ok_inst then instance = inst end
+        end
+        if not instance then
+            -- As a last resort, try to require the plugin's main.lua directly from its path
+            local main_path = plugin_mod._plugin_path .. "/main.lua"
+            local main_attr = lfs.attributes(main_path)
+            if main_attr and main_attr.mode == "file" then
+                logger.warn("[DEBUG] _getDiskPlugins: attempting direct require of", main_path)
+                -- Add plugin path to package.path temporarily
+                local old_path = package.path
+                package.path = plugin_mod._plugin_path .. "/?.lua;" .. plugin_mod._plugin_path .. "/?/init.lua;" .. old_path
+                local ok_main, main_mod = pcall(require, name)
+                package.path = old_path
+                if ok_main then
+                    instance = main_mod
+                    logger.warn("[DEBUG] _getDiskPlugins: loaded plugin via direct require")
+                else
+                    logger.warn("[DEBUG] _getDiskPlugins: direct require failed:", main_mod)
+                end
+            else
+                logger.warn("[DEBUG] _getDiskPlugins: no main.lua found at", main_path)
+            end
+        end
+
+        local method = nil
+        if instance then
+            for _, pfx in ipairs({"onShow","show","open","launch","onOpen"}) do
+                if type(instance[pfx]) == "function" then
+                    method = pfx
+                    break
+                end
+            end
+            if not method then
+                local cap = "on" .. name:sub(1,1):upper() .. name:sub(2)
+                if type(instance[cap]) == "function" then
+                    method = cap
+                end
+            end
+        end
+
+        if method then
+            local title = plugin_mod.fullname or plugin_mod.name or name
+            title = tostring(title):gsub("^filemanager", "")
+            logger.warn("[DEBUG] _getDiskPlugins: found plugin with method:", name, method, "title:", title)
+            results[#results + 1] = { plugin_key = name, plugin_method = method, title = title }
+        else
+            logger.warn("[DEBUG] _getDiskPlugins: plugin", name, "has no suitable onShow* method")
+        end
+        ::continue::
+    end
+
+    logger.warn("[DEBUG] _getDiskPlugins: total disk plugins found:", #results)
     return results
 end
 
@@ -448,14 +592,46 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
     local function openPluginPicker()
-        local plugin_actions = _scanFMPlugins()
-        if #plugin_actions == 0 then
+        logger.warn("[DEBUG] openPluginPicker() called")  -- DEBUG
+        local fm_plugins = _scanFMPlugins()
+        logger.warn("[DEBUG] openPluginPicker: FM plugins count:", #fm_plugins)
+        local disk_plugins = _getDiskPlugins()
+        logger.warn("[DEBUG] openPluginPicker: Disk plugins count:", #disk_plugins)
+
+        -- Normalize disk plugins to use same keys as FM plugins (fm_key, fm_method)
+        for _, dp in ipairs(disk_plugins) do
+            dp.fm_key = dp.plugin_key
+            dp.fm_method = dp.plugin_method
+            dp.plugin_key = nil
+            dp.plugin_method = nil
+        end
+
+        -- Merge and deduplicate by fm_key (prefer FM plugins if duplicate)
+        local combined = {}
+        local seen_keys = {}
+        for _, p in ipairs(fm_plugins) do
+            combined[#combined + 1] = p
+            seen_keys[p.fm_key] = true
+        end
+        for _, p in ipairs(disk_plugins) do
+            if not seen_keys[p.fm_key] then
+                combined[#combined + 1] = p
+                seen_keys[p.fm_key] = true
+            else
+                logger.warn("[DEBUG] openPluginPicker: skipping duplicate plugin from disk:", p.fm_key)
+            end
+        end
+
+        if #combined == 0 then
             UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
+            logger.warn("[DEBUG] openPluginPicker: no plugins after merge")
             return
         end
+
+        logger.warn("[DEBUG] openPluginPicker: total combined plugins:", #combined)
         local buttons = {}
-        table.sort(plugin_actions, function(a, b) return a.title:lower() < b.title:lower() end)
-        for _i, a in ipairs(plugin_actions) do
+        table.sort(combined, function(a, b) return a.title:lower() < b.title:lower() end)
+        for _i, a in ipairs(combined) do
             local _a = a
             buttons[#buttons + 1] = {{ text = _a.title, callback = function()
                 UIManager:close(plugin._qa_plugin_picker)
