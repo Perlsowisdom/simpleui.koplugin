@@ -356,38 +356,42 @@ end
 -- Harvest plugins from FM instance (not just menu_items)
 -- Get all currently loaded plugin instances from PluginLoader
 local function _getLoadedPlugins()
-    local ok_pl, PluginLoader = pcall(require, "frontend/pluginloader")
-    if not ok_pl or not PluginLoader then
-        logger.warn("[simpleui] _getLoadedPlugins: PluginLoader not available")
+    -- Get loaded plugins from FileManager's plugin registry
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    fm = fm and fm.instance
+    if not fm then
+        logger.warn("[simpleui] _getLoadedPlugins: no FM instance")
         return {}
     end
     
-    -- PluginLoader stores loaded plugins in _cnt by name
-    -- We need to iterate through _cnt to get all loaded plugins
-    local loaded = {}
+    -- FM stores loaded plugins in _loaded table (key = plugin name, value = plugin table)
+    local fm_loaded = fm._loaded or fm.loaded_plugins or fm.plugins or {}
     
-    -- Check if PluginLoader has a method to get loaded plugins
-    if type(PluginLoader._cnt) == "table" then
-        for name, plugin in pairs(PluginLoader._cnt) do
-            if type(plugin) == "table" and plugin.name then
-                loaded[#loaded + 1] = plugin
-                logger.warn("[simpleui] _getLoadedPlugins: found loaded plugin:", name)
+    local results = {}
+    local seen = {}
+    
+    -- Iterate through FM's loaded plugins
+    for name, plugin in pairs(fm_loaded) do
+        if type(name) == "string" and type(plugin) == "table" and plugin.name and not seen[name] then
+            seen[name] = true
+            results[#results + 1] = plugin
+            logger.warn("[simpleui] _getLoadedPlugins: found from FM:", name)
+        end
+    end
+    
+    -- Also check if FM has a plugins array
+    if fm.plugins and type(fm.plugins) == "table" then
+        for _, plugin in ipairs(fm.plugins) do
+            if type(plugin) == "table" and plugin.name and not seen[plugin.name] then
+                seen[plugin.name] = true
+                results[#results + 1] = plugin
+                logger.warn("[simpleui] _getLoadedPlugins: found from FM.plugins:", plugin.name)
             end
         end
     end
     
-    -- Also try to get instances if they exist
-    if type(PluginLoader.getInstances) == "function" then
-        local instances = PluginLoader:getInstances()
-        if type(instances) == "table" then
-            for _, plugin in ipairs(instances) do
-                loaded[#loaded + 1] = plugin
-            end
-        end
-    end
-    
-    logger.warn("[simpleui] _getLoadedPlugins: total loaded plugins:", #loaded)
-    return loaded
+    logger.warn("[simpleui] _getLoadedPlugins: total loaded plugins:", #results)
+    return results
 end
 
 local function _harvestFMPlugins()
