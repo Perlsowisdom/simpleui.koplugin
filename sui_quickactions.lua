@@ -341,86 +341,92 @@ end
 
 -- Harvest plugins from FM instance (not just menu_items)
 local function _harvestFMPlugins()
-    -- KOReader plugins register menu items when they load (e.g. menu_items["bookfusion"] = { text="BookFusion", callback=... })
-    -- We scan these for plugin-like entries and check if the corresponding FM key has useful methods.
-    logger.warn("[simpleui] _harvestFMPlugins: starting harvest")
+    -- Harvest plugins using KOReader's PluginLoader system.
+    -- This properly respects the plugins_disabled setting and finds all enabled plugins.
+    logger.warn("[simpleui] _harvestFMPlugins: starting harvest via PluginLoader")
 
-    local fm = package.loaded["apps/filemanager/filemanager"]
-    fm = fm and fm.instance
-    if not fm then
-        logger.warn("[simpleui] _harvestFMPlugins: FM not available")
+    -- Get enabled plugins from PluginLoader (respects plugins_disabled setting)
+    local ok_pl, PluginLoader = pcall(require, "frontend/pluginloader")
+    if not ok_pl or not PluginLoader then
+        logger.warn("[simpleui] _harvestFMPlugins: PluginLoader not available")
         return
     end
 
-    -- Get the FileManagerMenu (where plugins register their menu items)
-    -- In KOReader, plugins call menu:registerToMainMenu({name="pluginname", ...}) during init
-    local fm_menu = fm.menu
-    if not fm_menu then
-        -- Fallback: try to get via the menu module directly
-        local ok, FMMenu = pcall(require, "apps/filemanager/filemanagermenu")
-        if ok and FMMenu then
-            fm_menu = FMMenu
-        end
+    -- loadPlugins() returns enabled_plugins, disabled_plugins
+    -- It caches results, so calling multiple times is efficient
+    local enabled_plugins = PluginLoader:loadPlugins()
+
+    if type(enabled_plugins) ~= "table" or #enabled_plugins == 0 then
+        logger.warn("[simpleui] _harvestFMPlugins: no enabled plugins found")
+        return
     end
 
-    -- Internal native menu items we should skip
-    local native_items = {
-        history=true, bookinfo=true, collections=true, dictionary=true,
-        wikipedia=true, search=true, folder_shortcuts=true,
-        file_searcher=true, advanced_settings=true, plugin_management=true,
-        exit=true, restart=true, screenshot=true, language=true,
-        genders=true, about=true, open_next=true,
-    }
+    -- Now we need to find which plugins have registered menu items in FM.
+    -- The PluginLoader stores plugin modules with .name and .path
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    fm = fm and fm.instance
 
-    -- Scan FM instance keys for tables that have plugin-like properties
-    -- and match against menu_items names
     local seen = {}
-    for k, v in pairs(fm) do
-        if type(k) == "string" and type(v) == "table" and not k:match("^_") then
-            -- Skip obvious internal FM properties
-            if native_items[k] then goto continue end
-            if k == "input" or k == "ges" or k == "power" or k == "network" then goto continue end
-            if k == "window" or k == "footer" or k == "header" then goto continue end
-            if k == "file_chooser" or k == "focus" then goto continue end
+    for _, plugin in ipairs(enabled_plugins) do
+        local plugin_name = plugin.name
+        if not plugin_name or seen[plugin_name] then goto continue end
+        seen[plugin_name] = true
 
-            -- Check if this FM key has a name (common plugin pattern)
-            if type(v.name) == "string" and v.name ~= "" then
-                local plugin_name = v.name
-                if not seen[plugin_name] then
-                    seen[plugin_name] = true
+        -- Try to find this plugin's menu registration in FM
+        local found_method = nil
+        local found_fm_key = nil
 
-                    -- Look for useful methods
-                    local useful_method = nil
-                    for _, pattern in ipairs({"onShow", "show", "open", "onOpen", "launch", "callback"}) do
-                        if type(v[pattern]) == "function" then
-                            useful_method = pattern
-                            break
+        if fm then
+            -- Check FM instance for this plugin's registered methods
+            for k, v in pairs(fm) do
+                if type(k) == "string" and type(v) == "table" then
+                    -- Check if this FM key matches the plugin or has useful methods
+                    if k == plugin_name or v.name == plugin_name then
+                        -- Look for useful methods
+                        for _, pattern in ipairs({"onShow", "show", "open", "onOpen", "launch", "callback"}) do
+                            if type(v[pattern]) == "function" then
+                                found_method = pattern
+                                found_fm_key = k
+                                break
+                            end
                         end
-                    end
-
-                    -- Also check if it has addToMainMenu (definitely a plugin)
-                    local has_menu_reg = type(v.addToMainMenu) == "function"
-
-                    if useful_method or has_menu_reg then
-                        table.insert(_registered_plugin_queue, {
-                            name = plugin_name,
-                            fm_key = k,
-                            fm_method = useful_method or (has_menu_reg and "addToMainMenu"),
-                            title = plugin_name,
-                        })
-                        logger.warn("[simpleui] _harvestFMPlugins: found:", plugin_name, "| key:", k, "| method:", useful_method)
+                        -- Also check addToMainMenu
+                        if not found_method and type(v.addToMainMenu) == "function" then
+                            found_method = "addToMainMenu"
+                            found_fm_key = k
+                        end
+                        if found_method then break end
                     end
                 end
             end
-
-            ::continue::
         end
-    end
 
-    logger.warn("[simpleui] _harvestFMPlugins: done, found:", #_registered_plugin_queue)
+        -- For plugins without FM methods, try to find a useful method on the plugin itself
+        if not found_method then
+            for _, pattern in ipairs({"onShow", "show", "open", "onOpen", "launch", "callback"}) do
+                if type(plugin[pattern]) == "function" then
+                    found_method = pattern
+                    found_fm_key = plugin_name
+                    break
+                end
+            end
+        end
+
+        -- Only add if we found something useful
+        if found_method then
+            table.insert(_registered_plugin_queue, {
+                name = plugin_name,
+                fm_key = found_fm_key,
+                fm_method = found_method,
+                title = plugin_name,
+            })
+            logger.warn("[simpleui] _harvestFMPlugins: found plugin:", plugin_name, "| key:", found_fm_key, "| method:", found_method)
+        end
+        ::continue::
+    end
+    logger.warn("[simpleui] _harvestFMPlugins: found", #_registered_plugin_queue, "enabled plugins with useful methods")
 end
 
--- Main function to get plugins for the picker
 local function _scanRegisteredPlugins()
     -- If we have hooked plugins, return them
     if #_registered_plugin_queue > 0 then
