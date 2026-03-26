@@ -275,62 +275,71 @@ end
 
 -- Scans the filesystem for installed .koplugin directories to find external
 -- plugins that provide onShow* methods but may not be loaded by the FM.
--- Returns a table of { name = string, path = string, module = table } for each
--- discovered plugin, or an empty table on error.
-local function _getDiskPlugins()
-    local plugins = {}
-    local plugin_dirs = { DEFAULT_PLUGIN_PATH, extra_plugin_paths }
-    
-    for _, dir in ipairs(plugin_dirs) do
-        local attr = lfs.attributes(dir)
-        if not attr or attr.mode ~= "directory" then
-            logger.warn("[DEBUG] _getDiskPlugins: skipping non-directory:", dir)
-            goto next_dir
+
+-- Discovers external plugins by walking KOReader's FileManagerMenu registry.
+-- This is more reliable than filesystem scanning because it only returns
+-- plugins that are actually registered and loaded by KOReader.
+local function _scanRegisteredPlugins()
+    logger.warn("[DEBUG] _scanRegisteredPlugins() called")
+    local results = {}
+    local seen = {}
+    local our_name = "simpleui"
+
+    -- Try registered_widgets first (most reliable)
+    local registered_widgets = package.loaded[" registered_widgets"]
+    if registered_widgets and type(registered_widgets) == "table" then
+        for name, widget in pairs(registered_widgets) do
+            if type(name) == "string" and name ~= our_name
+               and type(widget) == "table"
+               and (type(widget.onShow) == "function" or type(widget.onShowBookInfo) == "function"
+                    or type(widget.onShowColl) == "function" or type(widget.onShowCollList) == "function"
+                    or type(widget.onShowDictionaryLookup) == "function" or type(widget.onShowWikipediaLookup) == "function"
+                    or type(widget.onShowFileSearch) == "function" or type(widget.onShowFolderShortcutsDialog) == "function")
+            then
+                logger.warn("[DEBUG] _scanRegisteredPlugins: found via registered_widgets:", name)
+                results[#results + 1] = {
+                    fm_key = name,
+                    fm_method = "onShow",
+                    title = name:gsub("^filemanager", ""):gsub("^plugin_", ""):gsub("_", " "):gsub("(%l)(%w*)", function(a,b) return a:upper()..b end),
+                }
+                seen[name] = true
+            end
         end
-        
-        for entry in lfs.dir(dir) do
-            if entry ~= "." and entry ~= ".." then
-                local path = dir.."/"..entry
-                local attr = lfs.attributes(path)
-                
-                if attr and attr.mode == "directory" then
-                    local plugin_root = path
-                    local mainfile = plugin_root.."/main.lua"
-                    
-                    -- Check if main.lua exists
-                    if lfs.attributes(mainfile) then
-                        local ok, plugin_module = pcall(require, mainfile)
-                        
-                        if ok and plugin_module then
-                            -- Validate plugin structure
-                            if type(plugin_module.name) == "string" and 
-                               type(plugin_module.is_doc_only) == "boolean" then
-                                
-                                -- Add to results
-                                table.insert(plugins, {
-                                    name = plugin_module.name,
-                                    path = plugin_root,
-                                    module = plugin_module
-                                })
-                                logger.warn("[DEBUG] _getDiskPlugins: found plugin:", plugin_module.name)
-                            else
-                                logger.warn("[DEBUG] _getDiskPlugins: invalid plugin structure:", entry)
-                            end
-                        else
-                            logger.warn("[DEBUG] _getDiskPlugins: failed to load:", entry)
-                        end
-                    else
-                        logger.warn("[DEBUG] _getDiskPlugins: no main.lua at:", mainfile)
+    end
+
+    -- Also check FileManagerMenu.menu_items
+    local FileManagerMenu = package.loaded["ui/uimanager"] and package.loaded["ui/uimanager"]._menu
+    if not FileManagerMenu then
+        local fm = package.loaded["apps/filemanager/filemanager"]
+        if fm and fm.instance and fm.instance.menu then
+            FileManagerMenu = fm.instance.menu
+        end
+    end
+    if FileManagerMenu and FileManagerMenu.menu_items then
+        for name, item in pairs(FileManagerMenu.menu_items) do
+            if type(name) == "string" and not seen[name] and name ~= our_name then
+                local plugin_key = item.plugin_key or item.plugin or item.module or item.name
+                if type(plugin_key) == "string" and plugin_key ~= our_name then
+                    local has_callback = type(item.callback) == "function"
+                           or type(item.goToPage) == "function" or type(item.onClick) == "function"
+                    if has_callback then
+                        logger.warn("[DEBUG] _scanRegisteredPlugins: found via FileManagerMenu:", name)
+                        results[#results + 1] = {
+                            fm_key = name,
+                            fm_method = "callback",
+                            title = item.text or item.descr or item.description or item.label or name,
+                        }
+                        seen[name] = true
                     end
                 end
             end
         end
-        ::next_dir::
     end
-    
-    logger.warn("[DEBUG] _getDiskPlugins: total disk plugins found:", #plugins)
-    return plugins
+
+    logger.warn("[DEBUG] _scanRegisteredPlugins: total registered plugins found:", #results)
+    return results
 end
+
 
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
@@ -472,7 +481,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         logger.warn("[DEBUG] openPluginPicker() called")  -- DEBUG
         local fm_plugins = _scanFMPlugins()
         logger.warn("[DEBUG] openPluginPicker: FM plugins count:", #fm_plugins)
-        local disk_plugins = _getDiskPlugins()
+        local registered_plugins = _scanRegisteredPlugins()
         logger.warn("[DEBUG] openPluginPicker: Disk plugins count:", #disk_plugins)
 
         -- Normalize disk plugins to use same keys as FM plugins (fm_key, fm_method)
