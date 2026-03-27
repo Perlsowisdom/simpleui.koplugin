@@ -497,6 +497,7 @@ local function _scanRegisteredPlugins()
     end
 
     -- Get all loaded plugins
+    if not PluginLoader.loaded then logger.warn("[DEBUG] PluginLoader.loaded not available"); return results end
     local loaded = PluginLoader:loaded()
     if not loaded or #loaded == 0 then
         logger.warn("[DEBUG] _scanRegisteredPlugins: no plugins loaded")
