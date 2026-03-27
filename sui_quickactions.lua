@@ -14,6 +14,7 @@ local Device    = require("device")
 local Screen    = Device.screen
 local lfs       = require("libs/libkoreader-lfs")
 local logger    = require("logger")
+local PluginLoader = require("pluginloader")
 local _         = require("gettext")
 
 local Config    = require("sui_config")
