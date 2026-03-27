@@ -434,15 +434,59 @@ local function _harvestFMPlugins()
                         local plugin_name = entry:gsub("%.koplugin$", "")
                         local fm = package.loaded["apps/filemanager/filemanager"]
                         fm = fm and fm.instance
-                        if fm and fm[plugin_name] then
-                            local plugin = fm[plugin_name]
-                            if plugin and type(plugin.addToMainMenu) == "function" then
-                                local ok, menu = pcall(plugin.addToMainMenu, plugin, {})
-                                if ok and menu and menu.callback then
-                                    logger.warn("[simpleui] _harvestFMPlugins: found", plugin_name)
+                        local plugin_name = entry:gsub("%.koplugin$", "")
+                        
+                        -- Actually load the plugin module
+                        local ok_load, mod = pcall(require, plugin_name)
+                        if not ok_load or not mod then
+                            logger.warn("[simpleui] _harvestFMPlugins: could not load", plugin_name)
+                        else
+                            -- Check if it has addToMainMenu
+                            if type(mod.addToMainMenu) == "function" or type(mod.registerToMainMenu) == "function" then
+                                -- Try to get menu items
+                                local ok_menu, menu_items = pcall(function()
+                                    local fake_menu = {}
+                                    local menu_fn = mod.addToMainMenu or mod.registerToMainMenu
+                                    menu_fn(mod, fake_menu)
+                                    return fake_menu
+                                end)
+                                
+                                if ok_menu and menu_items and next(menu_items) then
+                                    -- Find a callable method for the plugin
+                                    local action_method = nil
+                                    for _, method in ipairs({"onShow", "show", "open", "launch", "onOpen", "callback"}) do
+                                        if type(mod[method]) == "function" then
+                                            action_method = method
+                                            break
+                                        end
+                                    end
+                                    
+                                    -- If no standard method, check for menu callback
+                                    if not action_method and menu_items.callback then
+                                        action_method = "callback"
+                                    end
+                                    
+                                    -- Generate display name
+                                    local display_name = plugin_name
+                                    if menu_items.text then
+                                        display_name = menu_items.text
+                                    elseif menu_items.title then
+                                        display_name = menu_items.title
+                                    elseif menu_items.name then
+                                        display_name = menu_items.name
+                                    end
+                                    
+                                    table.insert(results, {
+                                        name = plugin_name,
+                                        display = display_name,
+                                        method = action_method,
+                                        has_menu = true,
+                                    })
+                                    logger.warn("[simpleui] _harvestFMPlugins: found", plugin_name, "->", display_name)
                                 end
                             end
                         end
+
                     end
                 end
             end
