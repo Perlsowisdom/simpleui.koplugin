@@ -455,35 +455,73 @@ end
 
 
 local function _scanRegisteredPlugins()
-    -- If we have hooked plugins, return them
-    if #_registered_plugin_queue > 0 then
-        logger.warn("[DEBUG] _scanRegisteredPlugins: returning", #_registered_plugin_queue, "hooked plugins")
-        return _registered_plugin_queue
+    -- Directly use PluginLoader:loaded() to get all loaded plugin instances
+    local results = {}
+
+    -- Get PluginLoader
+    local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    if not ok_pl or not PluginLoader then
+        logger.warn("[DEBUG] _scanRegisteredPlugins: PluginLoader not available")
+        return results
     end
 
-    -- Otherwise try to harvest from FM menu
-    logger.warn("[DEBUG] _scanRegisteredPlugins: no hooked plugins yet, trying FM harvest")
-    _harvestFMPlugins()
-
-    if #_registered_plugin_queue > 0 then
-        return _registered_plugin_queue
+    -- Get all loaded plugins
+    local loaded = PluginLoader:loaded()
+    if not loaded or #loaded == 0 then
+        logger.warn("[DEBUG] _scanRegisteredPlugins: no plugins loaded")
+        return results
     end
 
-    -- Last resort: check registered_widgets
-    logger.warn("[DEBUG] _scanRegisteredPlugins: trying registered_widgets fallback")
-    local widgets = package.loaded["registered_widgets"]
-    if widgets then
-        for name, mod in pairs(widgets) do
-            if type(name) == "string" and name ~= "dummy" and name ~= "reader" then
-                if mod and type(mod.addToMainMenu) == "function" then
-                    _recordPluginRegistration(name, mod, nil)
-                end
+    -- Build reverse map of FM keys to skip duplicates
+    local fm_keys = {}
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    if fm and fm.instance then
+        for k, v in pairs(fm.instance) do
+            if type(k) == "string" and type(v) == "table" then
+                fm_keys[v] = k
             end
         end
     end
 
-    logger.warn("[DEBUG] _scanRegisteredPlugins: total plugins found:", #_registered_plugin_queue)
-    return _registered_plugin_queue
+    for i = 1, #loaded do
+        local plugin_inst = loaded[i]
+        if type(plugin_inst) ~= "table" or type(plugin_inst.name) ~= "string" then goto continue end
+
+        local name = plugin_inst.name
+        -- Skip if already in FM
+        if fm_keys[plugin_inst] then goto continue end
+        -- Skip ourselves
+        if name == "simpleui" then goto continue end
+
+        -- Find a callable method to launch the plugin
+        local method = nil
+        -- Try common method names
+        for _, pfx in ipairs({"onShow", "show", "open", "launch", "onOpen", "callback"}) do
+            if type(plugin_inst[pfx]) == "function" then
+                method = pfx
+                break
+            end
+        end
+
+        if method then
+            local display = name:gsub("^filemanager", ""):gsub("^plugin", "")
+            if display == name then
+                display = name:gsub("^.", name:sub(1,1):upper())
+            end
+            results[#results + 1] = {
+                name = name,
+                method = method,
+                display = display,
+            }
+            logger.warn("[DEBUG] _scanRegisteredPlugins: found plugin:", name, "method:", method)
+        end
+
+        ::continue::
+    end
+
+    table.sort(results, function(a, b) return a.display:lower() < b.display:lower() end)
+    logger.warn("[DEBUG] _scanRegisteredPlugins: total external plugins found:", #results)
+    return results
 end
 
 
