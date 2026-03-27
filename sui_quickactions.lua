@@ -355,43 +355,30 @@ local function _getHookedPlugins()
 end
 
 -- Harvest plugins from FM instance (not just menu_items)
--- Get all currently loaded plugin instances from PluginLoader
+-- Get all loaded plugin instances from PluginLoader registry
 local function _getLoadedPlugins()
-    -- Get loaded plugins from FileManager's plugin registry
-    local fm = package.loaded["apps/filemanager/filemanager"]
-    fm = fm and fm.instance
-    if not fm then
-        logger.warn("[simpleui] _getLoadedPlugins: no FM instance")
+    -- Try to access PluginLoader's registry directly
+    -- PluginLoader stores loaded plugins in its module table under _loaded or _instances
+    local PluginLoader = package.loaded["pluginloader"]
+    if not PluginLoader then
+        logger.warn("[simpleui] _getLoadedPlugins: PluginLoader not available")
         return {}
     end
     
-    -- FM stores loaded plugins in _loaded table (key = plugin name, value = plugin table)
-    local fm_loaded = fm._loaded or fm.loaded_plugins or fm.plugins or {}
+    local loaded = PluginLoader._loaded or PluginLoader._instances or {}
     
     local results = {}
     local seen = {}
     
-    -- Iterate through FM's loaded plugins
-    for name, plugin in pairs(fm_loaded) do
+    for name, plugin in pairs(loaded) do
         if type(name) == "string" and type(plugin) == "table" and plugin.name and not seen[name] then
             seen[name] = true
             results[#results + 1] = plugin
-            logger.warn("[simpleui] _getLoadedPlugins: found from FM:", name)
+            logger.warn("[simpleui] _getLoadedPlugins: found:", name)
         end
     end
     
-    -- Also check if FM has a plugins array
-    if fm.plugins and type(fm.plugins) == "table" then
-        for _, plugin in ipairs(fm.plugins) do
-            if type(plugin) == "table" and plugin.name and not seen[plugin.name] then
-                seen[plugin.name] = true
-                results[#results + 1] = plugin
-                logger.warn("[simpleui] _getLoadedPlugins: found from FM.plugins:", plugin.name)
-            end
-        end
-    end
-    
-    logger.warn("[simpleui] _getLoadedPlugins: total loaded plugins:", #results)
+    logger.warn("[simpleui] _getLoadedPlugins: total:", #results)
     return results
 end
 
