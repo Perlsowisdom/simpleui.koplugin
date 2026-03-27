@@ -14,7 +14,7 @@ local Device    = require("device")
 local Screen    = Device.screen
 local lfs       = require("libs/libkoreader-lfs")
 local logger    = require("logger")
-local PluginLoader = require("pluginloader")
+-- PluginLoader not reliable on Kobo, use FM instance directly
 local _         = require("gettext")
 
 local Config    = require("sui_config")
