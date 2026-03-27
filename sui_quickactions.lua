@@ -395,50 +395,61 @@ local function _getLoadedPlugins()
 end
 
 local function _harvestFMPlugins()
-    logger.warn("[simpleui] _harvestFMPlugins: starting harvest")
+    logger.warn("[simpleui] _harvestFMPlugins: starting disk scan")
     
-    -- Clear previous queue to get fresh data
-    _registered_plugin_queue = {}
+    local results = {}
     
-    -- First, try to get already-loaded plugins
-    local loaded_plugins = _getLoadedPlugins()
+    -- Scan plugin directories
+    local plugin_paths = {
+        "/opt/koreader/plugins/",
+        "/Applications/koreader.app/Contents/Resources/plugins/",
+    }
     
-    -- Hook into each loaded plugin's addToMainMenu
-    for _, plugin in ipairs(loaded_plugins) do
-        if plugin and type(plugin.addToMainMenu) == "function" then
-            logger.warn("[simpleui] _harvestFMPlugins: hooking plugin:", plugin.name)
-            _hookPluginRegistration(plugin)
-        end
-    end
-    
-    -- Now trigger menu registration by calling addToMainMenu on each plugin
-    -- This will populate _registered_plugin_queue via our hooks
-    for _, plugin in ipairs(loaded_plugins) do
-        if plugin and type(plugin.addToMainMenu) == "function" then
-            logger.warn("[simpleui] _harvestFMPlugins: calling addToMainMenu for:", plugin.name)
-            local ok, err = pcall(function()
-                plugin:addToMainMenu({})
-            end)
-            if not ok then
-                logger.warn("[simpleui] _harvestFMPlugins: error calling addToMainMenu:", plugin.name, err)
+    -- Try to get paths from PluginLoader
+    local ok_Loader, PluginLoader = pcall(require, "pluginloader")
+    if ok_Loader and PluginLoader then
+        local ok_paths, paths = pcall(function()
+            return PluginLoader._paths
+        end)
+        if ok_paths and paths then
+            for _, p in pairs(paths) do
+                table.insert(plugin_paths, p)
             end
         end
     end
     
-    -- Now get results from the queue
-    local results = {}
-    for _, entry in ipairs(_registered_plugin_queue) do
-        results[#results + 1] = {
-            fm_key = entry.fm_key,
-            fm_method = entry.fm_method,
-            title = entry.title or entry.fm_key,
-        }
-        logger.warn("[simpleui] _harvestFMPlugins: result:", entry.fm_key, "| method:", entry.fm_method)
+    for _, base_path in ipairs(plugin_paths) do
+        local attr = lfs.attributes(base_path)
+        if attr and attr.mode == "directory" then
+            logger.warn("[simpleui] _harvestFMPlugins: scanning", base_path)
+            for entry in lfs.dir(base_path) do
+                if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
+                    local plugin_dir = base_path .. entry
+                    local main_file = plugin_dir .. "/main.lua"
+                    local main_attr = lfs.attributes(main_file)
+                    if main_attr then
+                        local plugin_name = entry:gsub("%.koplugin$", "")
+                        local fm = package.loaded["apps/filemanager/filemanager"]
+                        fm = fm and fm.instance
+                        if fm and fm[plugin_name] then
+                            local plugin = fm[plugin_name]
+                            if plugin and type(plugin.addToMainMenu) == "function" then
+                                local ok, menu = pcall(plugin.addToMainMenu, plugin, {})
+                                if ok and menu and menu.callback then
+                                    logger.warn("[simpleui] _harvestFMPlugins: found", plugin_name)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
     
-    logger.warn("[simpleui] _harvestFMPlugins: found", #results, "plugins")
+    logger.warn("[simpleui] _harvestFMPlugins: disk scan complete")
     return results
 end
+
 
 local function _scanRegisteredPlugins()
     -- If we have hooked plugins, return them
