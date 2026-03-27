@@ -695,7 +695,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
     local function openPluginPicker()
         logger.warn("[DEBUG] openPluginPicker() called")  -- DEBUG
-        local fm_plugins = _scanFMPlugins()
+        local fm_plugins = _harvestFMPlugins()
         logger.warn("[DEBUG] openPluginPicker: FM plugins count:", #fm_plugins)
         local registered_plugins = _scanRegisteredPlugins()
         logger.warn("[DEBUG] openPluginPicker: registered plugins count:", #registered_plugins)
