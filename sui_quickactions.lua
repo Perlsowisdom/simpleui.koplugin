@@ -402,6 +402,8 @@ local function _harvestFMPlugins()
     -- Scan plugin directories
     local plugin_paths = {
         "/opt/koreader/plugins/",
+        "/mnt/onboard/.kobo/koreader/plugins/",  -- Kobo user plugins
+        "/mnt/sd/koreader/plugins/",  -- Kobo SD card plugins
         "/Applications/koreader.app/Contents/Resources/plugins/",
     }
     
