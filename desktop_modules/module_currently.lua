@@ -1,6 +1,7 @@
 -- module_currently.lua — Simple UI
 -- Currently Reading module: cover + title + author + progress bar + percentage.
 
+-- External dependencies
 local Device  = require("device")
 local Screen  = Device.screen
 local _       = require("gettext")
@@ -22,13 +23,14 @@ local TextBoxWidget   = require("ui/widget/textboxwidget")
 local VerticalGroup   = require("ui/widget/verticalgroup")
 local VerticalSpan    = require("ui/widget/verticalspan")
 
+-- Internal dependencies
 local Config       = require("sui_config")
 local UI           = require("sui_core")
 local PAD          = UI.PAD
 local LABEL_H      = UI.LABEL_H
 local CLR_TEXT_SUB = UI.CLR_TEXT_SUB
 
--- Shared helpers — lazy-loaded.
+-- Lazy-loaded shared book helpers (cover, progress bar, book data).
 local _SH = nil
 local function getSH()
     if not _SH then
@@ -39,41 +41,59 @@ local function getSH()
     return _SH
 end
 
--- Internal spacing — base values at 100% scale; scaled at render time.
-local _BASE_COVER_GAP  = Screen:scaleBySize(12)
-local _BASE_TITLE_GAP  = Screen:scaleBySize(4)
-local _BASE_AUTHOR_GAP = Screen:scaleBySize(8)
-local _BASE_BAR_H      = Screen:scaleBySize(7)
-local _BASE_BAR_GAP    = Screen:scaleBySize(6)
-local _BASE_PCT_GAP    = Screen:scaleBySize(3)
-local _BASE_TITLE_FS   = Screen:scaleBySize(11)
-local _BASE_AUTHOR_FS  = Screen:scaleBySize(10)
-local _BASE_PCT_FS     = Screen:scaleBySize(8)
+-- Colours
+local _CLR_DARK   = Blitbuffer.COLOR_BLACK
+local _CLR_BAR_BG = Blitbuffer.gray(0.15)
+local _CLR_BAR_FG = Blitbuffer.gray(0.75)
 
-local _CLR_DARK    = Blitbuffer.COLOR_BLACK
-local _CLR_BAR_BG  = Blitbuffer.gray(0.15)
-local _CLR_BAR_FG  = Blitbuffer.gray(0.75)
+-- Vertical gaps between elements (base values at 100% scale; scaled in build()).
+local _BASE_COVER_GAP  = Screen:scaleBySize(12)  -- between cover and text column
+local _BASE_TITLE_GAP  = Screen:scaleBySize(4)   -- before title
+local _BASE_AUTHOR_GAP = Screen:scaleBySize(8)   -- before author
+local _BASE_BAR_GAP    = Screen:scaleBySize(6)   -- before progress bar
+local _BASE_PCT_GAP    = Screen:scaleBySize(3)   -- before percent / stats rows
 
-local _BASE_STATS_FS    = Screen:scaleBySize(8)
--- Width reserved for the inline percentage label (e.g. "100%")
-local _BASE_PCT_W       = Screen:scaleBySize(32)
--- Gap between bar and percentage label
-local _BASE_BAR_PCT_GAP = Screen:scaleBySize(6)
+-- Progress bar dimensions
+local _BASE_BAR_H       = Screen:scaleBySize(7)   -- bar height (matches module_reading_goals)
+local _BASE_BAR_PCT_GAP = Screen:scaleBySize(6)   -- horizontal gap between bar and inline pct label
+local _BASE_STATS_SEP_W = Screen:scaleBySize(8)   -- horizontal gap between inline stats items
+local _BASE_PCT_W       = Screen:scaleBySize(32)  -- width reserved for inline pct label (e.g. "100%")
+
+-- Font sizes (base values at 100% scale; scaled by both scale and lbl_scale in build()).
+local _BASE_TITLE_FS     = Screen:scaleBySize(11)
+local _BASE_AUTHOR_FS    = Screen:scaleBySize(10)
+local _BASE_PCT_FS       = Screen:scaleBySize(8)
+local _BASE_STATS_FS     = Screen:scaleBySize(8)
+local _BASE_INLINEPCT_FS = Screen:scaleBySize(11)  -- pct label inside the bar (with_pct style)
 
 -- Setting key for progress bar style: "simple" (default) or "with_pct"
 local BAR_STYLE_KEY = "currently_bar_style"
 
 local function getBarStyle(pfx)
-    return G_reader_settings:readSetting(pfx .. BAR_STYLE_KEY) or "simple"
+    return G_reader_settings:readSetting(pfx .. BAR_STYLE_KEY) or "with_pct"
 end
 
--- Font size for the inline percentage — matches module_reading_goals row font.
-local _BASE_INLINEPCT_FS = Screen:scaleBySize(11)
+-- Setting key for stats layout: "default" (one line per stat) or "compact" (single row with · separator + ETA)
+local STATS_STYLE_KEY = "currently_stats_style"
 
--- Builds an inline progress bar: [▓▓▓░░░░] XX%
--- Mirrors the logic from module_reading_goals.buildGoalRow to avoid
--- the percentage label overlapping the bar fill.
--- scale and lbl_scale are passed in so PCT_W, GAP and font track the module scale.
+local function getStatsStyle(pfx)
+    return G_reader_settings:readSetting(pfx .. STATS_STYLE_KEY) or "default"
+end
+
+-- Maximum title length in UTF-8 characters before truncation.
+local TITLE_MAX_LEN = 60
+
+-- Caps per-page duration at 120 s when computing avg reading time,
+-- matching KOReader's STATISTICS_SQL_BOOK_CAPPED_TOTALS_QUERY.
+local _MAX_SEC = 120
+
+-- Per-book stats cache (md5 → { days, total_secs, avg_time }).
+-- Cleared by onBookClosed() when the reading session ends.
+local _bstats_cache = {}
+
+
+-- Builds a progress bar with an inline percentage label: [▓▓▓░░░░] XX%
+-- bar_gap_w is applied as padding_bottom so the caller controls the gap below.
 local function buildProgressBarWithPct(w, pct, bar_h, bar_gap_w, scale, lbl_scale)
     local fs      = math.max(7, math.floor(_BASE_INLINEPCT_FS * scale * lbl_scale))
     local PCT_W   = math.max(16, math.floor(_BASE_PCT_W       * scale * lbl_scale))
@@ -93,8 +113,6 @@ local function buildProgressBarWithPct(w, pct, bar_h, bar_gap_w, scale, lbl_scal
         }
     end
 
-    -- Vertically centre the bar against the text height using an OverlapGroup
-    -- so the HorizontalGroup align="center" keeps everything on one baseline.
     local row = HorizontalGroup:new{
         align = "center",
         bar,
@@ -116,11 +134,8 @@ local function buildProgressBarWithPct(w, pct, bar_h, bar_gap_w, scale, lbl_scal
     }
 end
 
-local TITLE_MAX_LEN = 60
 
--- ---------------------------------------------------------------------------
--- Per-book stats (reading days, total time read, time remaining)
--- ---------------------------------------------------------------------------
+-- Formats a duration in seconds as "Xh Ym", "Xh", or "Ym".
 local function fmtTime(secs)
     secs = math.floor(secs or 0)
     if secs <= 0 then return "0m" end
@@ -131,59 +146,40 @@ local function fmtTime(secs)
     else                     return string.format("%dm", m) end
 end
 
--- ---------------------------------------------------------------------------
--- FIX 1: fetchBookStats and fetchAvgTime merged into a single DB query.
---
--- Previously two separate functions opened (potentially) two connections and
--- ran two queries on every render when stats were enabled. The second query
--- (fetchAvgTime) contained a GROUP BY subquery over page_stat — the most
--- expensive operation on a slow eMMC e-reader.
---
--- This single function returns { days, total_secs, avg_time } in one pass,
--- using one connection and one round-trip to SQLite.
---
--- FIX 2: force_fresh no longer forces a new connection open when shared_conn
--- is already available. The fresh flag's only purpose is to bypass the
--- prefetch cache (handled in build()); the shared connection — if present —
--- already reflects committed data because the host reopened it after the
--- reading session ended. Opening a second private connection in parallel
--- added ~100–300 ms of unnecessary I/O on each return to the homescreen.
--- ---------------------------------------------------------------------------
-local _MAX_SEC = 120 -- mirrors ReaderStatistics DEFAULT_MAX_READ_SEC
 
--- Per-book stats cache — keyed by md5, mirrors the day-keyed cache pattern
--- used in module_reading_stats. Avoids re-running the GROUP BY subquery on
--- every render; invalidated by onBookClosed() when the reading session ends.
-local _bstats_cache = {}   -- md5 → { days, total_secs, avg_time }
+-- Truncates a UTF-8 title to TITLE_MAX_LEN characters, appending "…" if needed.
+local function truncateTitle(title)
+    if not title then return title end
+    local count, i = 0, 1
+    while i <= #title do
+        local byte    = title:byte(i)
+        local charLen = byte >= 240 and 4 or byte >= 224 and 3 or byte >= 192 and 2 or 1
+        count = count + 1
+        if count > TITLE_MAX_LEN then
+            return title:sub(1, i - 1) .. "…"
+        end
+        i = i + charLen
+    end
+    return title
+end
 
+
+-- Fetches reading stats for a book from SQLite (days read, total time, avg time per page).
+-- Results are cached by md5; pass force_fresh=true to bypass the cache after a session ends.
+-- Uses shared_conn when available to avoid opening a second DB connection.
 local function fetchBookStats(md5, shared_conn, force_fresh)
     if not md5 then return nil end
 
-    -- Cache hit: return immediately without touching SQLite.
-    -- force_fresh is set when returning from a reading session; in that case
-    -- the cached value is stale and must be discarded (same as invalidateCache
-    -- in module_reading_stats).
     if not force_fresh and _bstats_cache[md5] then
         return _bstats_cache[md5]
     end
 
-    -- FIX 2: reuse shared_conn even when force_fresh — only bypass the
-    -- prefetch cache (done in build()), not the connection itself.
     local conn     = shared_conn or Config.openStatsDB()
     local own_conn = not shared_conn
     if not conn then return nil end
 
     local result = nil
     local ok, err = pcall(function()
-        -- Single query returns days, total time, and capped avg_time.
-        -- Capped avg mirrors KOReader's STATISTICS_SQL_BOOK_CAPPED_TOTALS_QUERY:
-        -- each page's total duration is capped at _MAX_SEC before averaging.
-        --
-        -- Previous JOIN approach was wrong: joining page_stat with the capped
-        -- subquery on page number multiplied each page's capped duration by the
-        -- number of page_stat rows for that page, inflating avg_time.
-        -- Fix: sum capped durations directly from the per-page subquery (one row
-        -- per page), using scalar subqueries for days and total_secs.
         local row = conn:exec(string.format([[
             SELECT
                 (SELECT count(DISTINCT date(ps2.start_time, 'unixepoch', 'localtime'))
@@ -221,59 +217,31 @@ local function fetchBookStats(md5, shared_conn, force_fresh)
         logger.warn("simpleui: module_currently: fetchBookStats failed: " .. tostring(err))
     end
     if own_conn then pcall(function() conn:close() end) end
-    -- Populate cache (even on partial/nil result to avoid hammering the DB on
-    -- repeated renders when the book has no stats yet).
     if result then _bstats_cache[md5] = result end
     return result
 end
 
--- ---------------------------------------------------------------------------
--- Title truncation — single UTF-8 pass (replaces the previous two-pass
--- utf8CharCount + utf8Sub approach to halve the number of iterations).
--- ---------------------------------------------------------------------------
-local function truncateTitle(title)
-    if not title then return title end
-    local count, i = 0, 1
-    while i <= #title do
-        local byte    = title:byte(i)
-        local charLen = byte >= 240 and 4 or byte >= 224 and 3 or byte >= 192 and 2 or 1
-        count = count + 1
-        if count > TITLE_MAX_LEN then
-            return title:sub(1, i - 1) .. "…"
-        end
-        i = i + charLen
-    end
-    return title
-end
 
--- ---------------------------------------------------------------------------
--- Visibility helpers — each element can be toggled independently.
--- Keys stored in G_reader_settings under pfx .. "currently_show_<elem>".
--- Default: all visible (nilOrTrue).
--- ---------------------------------------------------------------------------
+-- Returns true if the element with the given key is visible (default on).
 local function _showElem(pfx, key)
     return G_reader_settings:nilOrTrue(pfx .. "currently_show_" .. key)
 end
+
+-- Toggles the visibility of an element.
 local function _toggleElem(pfx, key)
     local cur = G_reader_settings:nilOrTrue(pfx .. "currently_show_" .. key)
     G_reader_settings:saveSetting(pfx .. "currently_show_" .. key, not cur)
 end
 
--- ---------------------------------------------------------------------------
--- Element order — defines both the default render order and the labels shown
--- in the Arrange Items SortWidget.
--- Keys match the `show` booleans and the keys used in build().
--- ---------------------------------------------------------------------------
+
+-- Element order and labels used by build() and the Arrange Items SortWidget.
 local ELEM_ORDER_KEY = "currently_elem_order"
 
--- Canonical default order (also used as the full element pool for labels).
 local _ELEM_DEFAULT_ORDER = {
     "title", "author", "progress", "percent",
     "book_days", "book_time", "book_remaining",
 }
 
--- Human-readable labels for the SortWidget — keyed by element id.
--- Defined once at module load so getMenuItems() has no string-construction cost.
 local _ELEM_LABELS = {
     title          = _("Title"),
     author         = _("Author"),
@@ -284,9 +252,8 @@ local _ELEM_LABELS = {
     book_remaining = _("Time remaining"),
 }
 
--- Returns the saved order, falling back to the default.
--- Unknown keys in the saved list are silently dropped; new keys from
--- _ELEM_DEFAULT_ORDER are appended at the tail (forward-compatible).
+-- Returns the user-saved element order, falling back to the default.
+-- Unknown keys are dropped; new keys are appended at the tail.
 local function _getElemOrder(pfx)
     local saved = G_reader_settings:readSetting(pfx .. ELEM_ORDER_KEY)
     if type(saved) ~= "table" or #saved == 0 then
@@ -296,13 +263,14 @@ local function _getElemOrder(pfx)
     for _, v in ipairs(saved) do
         if _ELEM_LABELS[v] then seen[v] = true; result[#result+1] = v end
     end
-    -- Append any new elements not yet in the saved list (forward-compatible).
     for _, v in ipairs(_ELEM_DEFAULT_ORDER) do
         if not seen[v] then result[#result+1] = v end
     end
     return result
 end
 
+
+-- Module API
 local M = {}
 
 M.id          = "currently"
@@ -311,26 +279,23 @@ M.label       = _("Currently Reading")
 M.enabled_key = "currently"
 M.default_on  = true
 
--- ---------------------------------------------------------------------------
--- onBookClosed — call this from the host when the reader is closed so that
--- the prefetched entry for the current book is invalidated. This ensures
--- that M.build() reads fresh progress and stats on the next render.
--- ---------------------------------------------------------------------------
+
+-- Clears the prefetch entry and stats cache for the closed book.
 function M.onBookClosed(ctx, fp)
     if ctx and ctx.prefetched and fp then
         ctx.prefetched[fp] = nil
     end
-    -- Invalidate the bstats cache for the closed book so that the next render
-    -- re-fetches updated days/time/remaining from SQLite (force_fresh path).
-    -- We don't know the md5 here, so clear the whole cache — it holds at most
-    -- one book's data in practice, so this is O(1).
     _bstats_cache = {}
 end
 
+-- Clears the stats cache (e.g. on plugin reset).
 function M.invalidateCache()
     _bstats_cache = {}
 end
 
+
+-- Builds the module widget: cover on the left, text column on the right.
+-- Elements in the text column are rendered in user-configured order.
 function M.build(w, ctx)
     if not ctx.current_fp then return nil end
 
@@ -342,29 +307,27 @@ function M.build(w, ctx)
     local lbl_scale   = Config.getItemLabelScale("currently", ctx.pfx)
     local D           = SH.getDims(scale, thumb_scale)
 
-    -- Scale internal spacing proportionally.
+    -- Scale gaps (layout scale only).
     local cover_gap  = math.max(1, math.floor(_BASE_COVER_GAP  * scale))
     local title_gap  = math.max(1, math.floor(_BASE_TITLE_GAP  * scale))
     local author_gap = math.max(1, math.floor(_BASE_AUTHOR_GAP * scale))
-    local bar_h      = math.max(1, math.floor(_BASE_BAR_H      * scale))
     local bar_gap    = math.max(1, math.floor(_BASE_BAR_GAP    * scale))
     local pct_gap    = math.max(1, math.floor(_BASE_PCT_GAP    * scale))
-    -- Text sizes apply both module scale and independent text scale.
+    local bar_h      = math.max(1, math.floor(_BASE_BAR_H      * scale))
+
+    -- Scale font sizes (layout scale × text scale).
     local title_fs   = math.max(8, math.floor(_BASE_TITLE_FS   * scale * lbl_scale))
     local author_fs  = math.max(8, math.floor(_BASE_AUTHOR_FS  * scale * lbl_scale))
     local pct_fs     = math.max(8, math.floor(_BASE_PCT_FS     * scale * lbl_scale))
     local stats_fs   = math.max(7, math.floor(_BASE_STATS_FS   * scale * lbl_scale))
 
-    -- Pre-resolve all font faces once rather than calling getFace
-    -- repeatedly throughout the function with identical arguments.
+    -- Resolve font faces once so they are not re-created per element.
     local face_title  = Font:getFace("smallinfofont", title_fs)
     local face_author = Font:getFace("smallinfofont", author_fs)
     local face_pct    = Font:getFace("smallinfofont", pct_fs)
     local face_s      = Font:getFace("smallinfofont", stats_fs)
 
-    -- Read all visibility flags up-front in one pass so the rest of
-    -- build() works with plain booleans and avoids repeated G_reader_settings
-    -- lookups (each call does a table lookup + string concatenation).
+    -- Read all visibility flags up-front to avoid repeated settings lookups.
     local pfx = ctx.pfx
     local show = {
         title    = _showElem(pfx, "title"),
@@ -376,8 +339,7 @@ function M.build(w, ctx)
         remain   = _showElem(pfx, "book_remaining"),
     }
 
-    -- When ctx.fresh is set (host signals return from reading) skip the
-    -- prefetched cache so that updated progress is read from disk/DB directly.
+    -- Skip the prefetch cache when returning from a reading session (ctx.fresh).
     local prefetched_entry = (not ctx.fresh)
         and ctx.prefetched
         and ctx.prefetched[ctx.current_fp]
@@ -385,14 +347,12 @@ function M.build(w, ctx)
     local cover = SH.getBookCover(ctx.current_fp, D.COVER_W, D.COVER_H)
                   or SH.coverPlaceholder(bd.title, D.COVER_W, D.COVER_H)
 
-    -- Text column width: total minus both side PADs, cover width, and cover gap.
+    -- Text column width: full width minus both PADs, cover, and cover gap.
     local tw = w - PAD - D.COVER_W - cover_gap - PAD
 
     local meta = VerticalGroup:new{ align = "left" }
 
-    -- Fetch bstats once, only if at least one stats element is active.
-    -- Hoisted out of the per-element loop so the DB is queried at most once
-    -- regardless of order or how many stats elements are enabled.
+    -- Fetch stats once if any stats element is active.
     local bstats
     if show.days or show.time or show.remain then
         local book_md5 = prefetched_entry and prefetched_entry.partial_md5_checksum
@@ -401,19 +361,15 @@ function M.build(w, ctx)
 
     local bar_style = getBarStyle(pfx)
 
-    -- Build element widgets in the user-configured order.
-    -- Each branch appends its widget(s) to `meta` only when the element is
-    -- visible and has content to show.
-    -- Gaps are added *before* each element (except the first) so the last
-    -- rendered element never leaves a trailing gap at the bottom.
+    -- Adds a vertical gap before the next element, but not before the first one.
     local meta_has_content = false
-
     local function gap_before(size)
         if meta_has_content then
             meta[#meta+1] = VerticalSpan:new{ width = size }
         end
     end
 
+    -- Append each visible element to meta in user-configured order.
     for _i, elem in ipairs(_getElemOrder(pfx)) do
         if elem == "title" and show.title then
             gap_before(title_gap)
@@ -439,7 +395,6 @@ function M.build(w, ctx)
         elseif elem == "progress" and show.progress then
             gap_before(bar_gap)
             if bar_style == "with_pct" then
-                -- Inline bar+percentage — "percent" element is ignored when this style is active.
                 meta[#meta+1] = buildProgressBarWithPct(tw, bd.percent, bar_h, bar_gap, scale, lbl_scale)
             else
                 meta[#meta+1] = SH.progressBar(tw, bd.percent, bar_h)
@@ -457,7 +412,8 @@ function M.build(w, ctx)
             }
             meta_has_content = true
 
-        elseif elem == "book_days" and show.days and bstats and bstats.days > 0 then
+        elseif elem == "book_days" and show.days and bstats and bstats.days > 0
+               and getStatsStyle(pfx) == "default" then
             gap_before(pct_gap)
             local days_label = bstats.days == 1
                 and _("1 day of reading")
@@ -470,7 +426,8 @@ function M.build(w, ctx)
             }
             meta_has_content = true
 
-        elseif elem == "book_time" and show.time and bstats and bstats.total_secs > 0 then
+        elseif elem == "book_time" and show.time and bstats and bstats.total_secs > 0
+               and getStatsStyle(pfx) == "default" then
             gap_before(pct_gap)
             meta[#meta+1] = TextWidget:new{
                 text    = string.format(_("%s read"), fmtTime(bstats.total_secs)),
@@ -480,13 +437,10 @@ function M.build(w, ctx)
             }
             meta_has_content = true
 
-        elseif elem == "book_remaining" and show.remain then
-            -- Prefer the capped avg from fetchBookStats (mirrors KOReader's
-            -- STATISTICS_SQL_BOOK_CAPPED_TOTALS_QUERY, max 120 s/page).
-            -- bd.avg_time from Source 2 is uncapped and will over-estimate
-            -- remaining time when any page had a long idle pause.
-            -- bd.avg_time from Source 1 (live session) is already capped by
-            -- KOReader Statistics, so using bstats is safe in all cases.
+        elseif elem == "book_remaining" and show.remain
+               and getStatsStyle(pfx) == "default" then
+            -- Prefer the capped avg_time from fetchBookStats to avoid over-estimating
+            -- remaining time when pages had long idle pauses.
             local avg_t = (bstats and bstats.avg_time and bstats.avg_time > 0)
                           and bstats.avg_time or bd.avg_time
             if avg_t and avg_t > 0 and bd.pages and bd.pages > 0 then
@@ -503,6 +457,64 @@ function M.build(w, ctx)
                     meta_has_content = true
                 end
             end
+
+        elseif elem == "book_days" and (show.days or show.time or show.remain)
+               and getStatsStyle(pfx) == "compact" then
+            -- Compact mode: single row "4h 18m · 3h 13m · 3 days · ~21:00"
+            -- Fires at the position of "book_days" in the user-configured order;
+            -- book_time and book_remaining are skipped below when compact is active.
+
+            -- Compute secs_left once (shared by "remain" item and ETA).
+            local secs_left
+            local avg_t = (bstats and bstats.avg_time and bstats.avg_time > 0)
+                          and bstats.avg_time or bd.avg_time
+            if avg_t and avg_t > 0 and bd.pages and bd.pages > 0 then
+                local pages_left = bd.pages * (1 - (bd.percent or 0))
+                local sl = math.floor(avg_t * pages_left)
+                if sl > 0 then secs_left = sl end
+            end
+
+            local parts = {}
+            if show.time and bstats and bstats.total_secs > 0 then
+                parts[#parts+1] = string.format(_("%s read"), fmtTime(bstats.total_secs))
+            end
+            if show.remain and secs_left then
+                parts[#parts+1] = string.format(_("%s left"), fmtTime(secs_left))
+            end
+            if show.days and bstats and bstats.days > 0 then
+                parts[#parts+1] = bstats.days == 1
+                    and _("1 day")
+                    or  string.format(_("%d days"), bstats.days)
+            end
+            if secs_left then
+                local eta_t = os.date("*t", os.time() + secs_left)
+                parts[#parts+1] = string.format(_("~%d:%02d"), eta_t.hour, eta_t.min)
+            end
+
+            if #parts > 0 then
+                gap_before(pct_gap)
+                local stats_row = HorizontalGroup:new{ align = "center" }
+                for i, part in ipairs(parts) do
+                    if i > 1 then
+                        stats_row[#stats_row+1] = TextWidget:new{
+                            text    = " · ",
+                            face    = face_s,
+                            fgcolor = CLR_TEXT_SUB,
+                        }
+                    end
+                    stats_row[#stats_row+1] = TextWidget:new{
+                        text    = part,
+                        face    = face_s,
+                        fgcolor = CLR_TEXT_SUB,
+                    }
+                end
+                meta[#meta+1] = stats_row
+                meta_has_content = true
+            end
+
+        elseif (elem == "book_time" or elem == "book_remaining")
+               and getStatsStyle(pfx) == "compact" then
+            -- Skipped in compact mode: rendered inside the book_days row above.
         end
     end
 
@@ -516,12 +528,8 @@ function M.build(w, ctx)
         meta,
     }
 
-    -- Outer container: horizontal padding only, no fixed vertical height.
-    -- We must NOT pin dimen.h to COVER_H here: the meta column can be taller
-    -- than COVER_H when the stats rows (days / time / remaining) are enabled,
-    -- and KOReader clips any content that exceeds the widget's declared dimen.
-    -- The actual height is determined by getHeight(), which accounts for the
-    -- same stat rows so the homescreen allocates enough vertical space.
+    -- Height is driven by getHeight() so the homescreen allocates enough space
+    -- for the stats rows. Pinning dimen.h to COVER_H would clip taller meta columns.
     local content_h = M.getHeight(ctx) - Config.getScaledLabelH()
     local tappable = InputContainer:new{
         dimen    = Geom:new{ w = w, h = content_h },
@@ -551,6 +559,8 @@ function M.build(w, ctx)
     return tappable
 end
 
+
+-- Returns the total pixel height of the module including the section label.
 function M.getHeight(_ctx)
     local SH = getSH()
     if not SH then return Config.getScaledLabelH() end
@@ -561,33 +571,28 @@ function M.getHeight(_ctx)
 
     local h = D.COVER_H
 
-    -- Reserve a fixed block for stats rows (days / time / remaining).
-    -- Height is always the same regardless of how many rows are active,
-    -- so the module size never changes when toggling individual elements.
-    -- FIX 3: previously used undefined local variables (show_days, show_time,
-    -- show_remain) which were always nil, so the stats height block was never
-    -- reserved — causing a layout mismatch with build() and potential re-layout.
+    -- Add height for each active stats row (gap before the block + one line per row).
     local show_days   = _showElem(pfx, "book_days")
     local show_time   = _showElem(pfx, "book_time")
     local show_remain = _showElem(pfx, "book_remaining")
 
-    -- Count only the stats rows that are actually enabled, so that
-    -- getHeight() matches what build() really renders and no blank space
-    -- appears below the module when fewer than 3 stat rows are active.
-    local active_stats = (show_days and 1 or 0)
-                       + (show_time  and 1 or 0)
+    -- Stats are now rendered as a single horizontal row (days + time + remaining + ETA).
+    -- Reserve height for that one line whenever at least one stats element is active.
+    local active_stats = (show_days   and 1 or 0)
+                       + (show_time   and 1 or 0)
                        + (show_remain and 1 or 0)
     if active_stats > 0 then
         local stats_line_h = math.max(7, math.floor(_BASE_STATS_FS * scale * lbl_scale))
         local gap          = math.max(1, math.floor(_BASE_PCT_GAP  * scale))
-        -- gap before the first stats row + one line per active row
-        h = h + gap + stats_line_h * active_stats
+        local lines = getStatsStyle(pfx) == "compact" and 1 or active_stats
+        h = h + gap + stats_line_h * lines
     end
 
     return Config.getScaledLabelH() + h
 end
 
 
+-- Settings menu helpers (scale, text size, cover size).
 local function _makeScaleItem(ctx_menu)
     local pfx = ctx_menu.pfx
     local _lc = ctx_menu._
@@ -629,6 +634,8 @@ local function _makeTextScaleItem(ctx_menu)
     })
 end
 
+
+-- Returns the settings menu items for this module.
 function M.getMenuItems(ctx_menu)
     local pfx     = ctx_menu.pfx
     local refresh = ctx_menu.refresh
@@ -650,16 +657,11 @@ function M.getMenuItems(ctx_menu)
     local InfoMessage = ctx_menu.InfoMessage
     local SortWidget  = ctx_menu.SortWidget
 
-    -- Scale items (no separator between them), then separator before Items submenu.
     local thumb = _makeThumbScaleItem(ctx_menu)
     thumb.separator = true
 
-    -- Items submenu — Arrange Items at the top, then a separator, then
-    -- the visibility toggles in alphabetical order.
     local items_submenu = {
-        -- Arrange Items — only the active (visible) elements appear in the
-        -- SortWidget, mirroring the pattern used in module_reading_stats and
-        -- module_collections. Disabled when fewer than 2 elements are active.
+        -- Arrange Items: drag-to-reorder the visible elements. Disabled when fewer than 2 are active.
         {
             text           = _lc("Arrange Items"),
             keep_menu_open = true,
@@ -689,14 +691,11 @@ function M.getMenuItems(ctx_menu)
                     item_table        = sort_items,
                     covers_fullscreen = true,
                     callback          = function()
-                        -- Save only the active order; inactive elements will be
-                        -- appended at the tail by _getElemOrder() when re-enabled.
                         local new_order = {}
                         for _, item in ipairs(sort_items) do
                             new_order[#new_order+1] = item.orig_item
                         end
-                        -- Append inactive elements at the tail so they have a
-                        -- stable position when toggled back on later.
+                        -- Append inactive elements at the tail so their position is stable.
                         local active_set = {}
                         for _, k in ipairs(new_order) do active_set[k] = true end
                         for _, k in ipairs(_getElemOrder(pfx)) do
@@ -708,13 +707,12 @@ function M.getMenuItems(ctx_menu)
                 })
             end,
         },
-        -- Visibility toggles — alphabetical order, separated from Arrange Items above.
+        -- Visibility toggles (alphabetical order).
         toggle_item("Author",          "author"),
         toggle_item("Days of reading", "book_days"),
         {
             text_func      = function() return _lc("Percentage read") end,
-            -- Greyed out (not interactive) when the inline bar style is active,
-            -- because the percentage is already shown inside the bar row.
+            -- Greyed out when with_pct bar style is active (percentage is already in the bar).
             enabled_func   = function() return getBarStyle(pfx) == "simple" end,
             checked_func   = function() return _showElem(pfx, "percent") end,
             keep_menu_open = true,
@@ -723,7 +721,7 @@ function M.getMenuItems(ctx_menu)
                 refresh()
             end,
         },
-        toggle_item("Progress bar",    "progress"),
+        toggle_item("Progress bar", "progress"),
         {
             text = _lc("Progress bar style"),
             sub_item_table = {
@@ -749,9 +747,34 @@ function M.getMenuItems(ctx_menu)
                 },
             },
         },
-        toggle_item("Time read",       "book_time"),
-        toggle_item("Time remaining",  "book_remaining"),
-        toggle_item("Title",           "title"),
+        toggle_item("Time read",      "book_time"),
+        toggle_item("Time remaining", "book_remaining"),
+        toggle_item("Title",          "title"),
+        {
+            text = _lc("Stats layout"),
+            sub_item_table = {
+                {
+                    text           = _lc("Default"),
+                    radio          = true,
+                    keep_menu_open = true,
+                    checked_func   = function() return getStatsStyle(pfx) == "default" end,
+                    callback       = function()
+                        G_reader_settings:saveSetting(pfx .. STATS_STYLE_KEY, "default")
+                        refresh()
+                    end,
+                },
+                {
+                    text           = _lc("Compact"),
+                    radio          = true,
+                    keep_menu_open = true,
+                    checked_func   = function() return getStatsStyle(pfx) == "compact" end,
+                    callback       = function()
+                        G_reader_settings:saveSetting(pfx .. STATS_STYLE_KEY, "compact")
+                        refresh()
+                    end,
+                },
+            },
+        },
     }
 
     return {

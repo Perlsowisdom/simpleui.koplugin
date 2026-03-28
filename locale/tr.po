@@ -1043,3 +1043,21 @@ msgstr "Okunan süre"
 
 msgid "Time remaining"
 msgstr "Kalan süre"
+
+#: desktop_modules/module_currently.lua
+msgid "%s left"
+msgstr "%s kaldı"
+
+#: desktop_modules/module_currently.lua
+msgid "1 day"
+msgstr "1 gün"
+
+#: desktop_modules/module_currently.lua
+msgid "%d days"
+msgstr "%d gün"
+
+#: desktop_modules/module_currently.lua
+msgid "Stats layout"
+msgstr "İstatistik düzeni"
+
+

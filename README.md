@@ -108,17 +108,17 @@ SimpleUI has full translation support. The UI language is detected automatically
 | Português (Portugal) | `locale/pt_PT.po` | Complete (100%) |
 | Português (Brasil) | `locale/pt_BR.po` | Complete (100%) |
 | Türkçe (Turkish) | `locale/tr.po` | Complete (100%) |
-| Français (French) | `locale/fr.po` | Partial (92.4% — 26 missing) |
-| Español | `locale/es.po` | Partial (83.3% — 57 missing) |
-| Русский (Russian) | `locale/ru.po` | Partial (83.3% — 57 missing) |
-| 简体中文 (Chinese Simplified) | `locale/zh_CN.po` | Partial (83.3% — 57 missing) |
-| 繁體中文 (Chinese Traditional) | `locale/zh_TW.po` | Partial (80.6% — 66 missing) |
-| Română (Romanian) | `locale/ro.po` | Partial (71.3% — 98 missing) |
-| Deutsch (German) | `locale/de.po` | Partial (55.7% — 151 missing) |
+| 简体中文 (Chinese Simplified) | `locale/zh_CN.po` | Partial (97.1% — 10 missing) |
+| 繁體中文 (Chinese Traditional) | `locale/zh_TW.po` | Partial (97.1% — 10 missing) |
+| Français (French) | `locale/fr.po` | Partial (91.3% — 30 missing) |
+| Español | `locale/es.po` | Partial (85.2% — 51 missing) |
+| Русский (Russian) | `locale/ru.po` | Partial (82.3% — 61 missing) |
+| Română (Romanian) | `locale/ro.po` | Partial (70.4% — 102 missing) |
+| Deutsch (German) | `locale/de.po` | Partial (55.1% — 155 missing) |
 
 ### Adding a new language
 
-All 341 strings in the plugin are translatable. To add a new language:
+All 345 strings in the plugin are translatable. To add a new language:
 
 1. Copy `locale/simpleui.pot` to `locale/<lang>.po`, using the standard locale code for your language (examples: `de`, `fr`, `it`, `ja`)
 2. Open the file in any text editor or a dedicated PO editor such as [Poedit](https://poedit.net/)
