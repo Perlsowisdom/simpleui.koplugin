@@ -463,7 +463,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
-        local plugins = _scanFMPlugins()
+        local plugins = _getPluginList()
 
         if #plugins == 0 then
             UIManager:show(InfoMessage:new{
