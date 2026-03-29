@@ -291,7 +291,7 @@ local function _getLoadedPlugins()
         return {}
     end
     
-    local loaded = PluginLoader:loaded() or {}
+    local loaded = PluginLoader.loaded_plugins or {} or {}
     
     local results = {}
     local seen = {}
@@ -394,7 +394,7 @@ local function _scanRegisteredPlugins()
         end
     end
 
-    local loaded = PluginLoader:loaded() or {}; for i = 1, #loaded do
+    local loaded = PluginLoader.loaded_plugins or {} or {}; for i = 1, #loaded do
         local plugin_inst = loaded[i]
         if type(plugin_inst) ~= "table" or type(plugin_inst.name) ~= "string" then goto continue end
 
