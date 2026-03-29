@@ -291,7 +291,7 @@ local function _getLoadedPlugins()
         return {}
     end
     
-    local loaded = PluginLoader.enabled_plugins or {}
+    local loaded = PluginLoader:loaded() or {}
     
     local results = {}
     local seen = {}
@@ -378,7 +378,7 @@ local function _scanRegisteredPlugins()
     end
 
     -- Get all loaded plugins
-    if not PluginLoader.loaded_plugins or #PluginLoader.loaded_plugins == 0 then
+    if not PluginLoader:loaded() or #PluginLoader:loaded() == 0 then
         logger.warn("[DEBUG] _scanRegisteredPlugins: no plugins loaded")
         return results
     end
@@ -394,8 +394,8 @@ local function _scanRegisteredPlugins()
         end
     end
 
-    for i = 1, #PluginLoader.loaded_plugins do
-        local plugin_inst = PluginLoader.loaded_plugins[i]
+    local loaded = PluginLoader:loaded() or {}; for i = 1, #loaded do
+        local plugin_inst = loaded[i]
         if type(plugin_inst) ~= "table" or type(plugin_inst.name) ~= "string" then goto continue end
 
         local name = plugin_inst.name
