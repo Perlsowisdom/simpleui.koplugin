@@ -628,8 +628,10 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         local seen = {}
         local combined = {}
         for _, p in ipairs(fm_plugins) do
-            seen[p.fm_key] = true
-            combined[#combined + 1] = p
+            if p and p.fm_key then
+                seen[p.fm_key] = true
+                combined[#combined + 1] = p
+            end
         end
         for _, p in ipairs(registered_plugins) do
             if not seen[p.fm_key] then
