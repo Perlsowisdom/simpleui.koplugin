@@ -395,7 +395,7 @@ local function _harvestFMPlugins()
     end
     
     -- Try FM's _loaded table first
-    local fm_loaded = fm._loaded or {}
+    local fm_loaded = fm.loaded_plugins or {}
     if next(fm_loaded) then
         logger.warn("[simpleui] _harvestFMPlugins: FM._loaded has", #fm_loaded, "entries")
     end
