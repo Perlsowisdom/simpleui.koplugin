@@ -424,6 +424,10 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
     local function openPluginPicker(plugin)
+        if not plugin then
+            local SimpleUI = require("simpleui")
+            plugin = SimpleUI
+        end
         local plugins = _scanFMPlugins()
 
         if #plugins == 0 then
