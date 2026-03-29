@@ -964,4 +964,108 @@ function QA.showPluginPickerForTab(plugin, pos)
 end
 
 
+-- Scans PluginLoader._loaded for plugins that are loaded but not registered in FM
+-- (e.g. reader-only plugins that don't add to main menu).
+local function _scanNonFMPlugins(fm_known_keys)
+    local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    if not ok_pl or not PluginLoader then return {} end
+    local loaded_list = PluginLoader._loaded
+    if type(loaded_list) ~= "table" then return {} end
+
+    local results = {}
+    for _, entry in ipairs(loaded_list) do
+        if type(entry) ~= "table" then goto continue end
+        local name = entry.name
+        local inst = entry.instance
+        if type(name) ~= "string" or name == "" or name == "simpleui" then goto continue end
+        if fm_known_keys[name] then goto continue end
+        if type(inst) ~= "table" then goto continue end
+        if type(inst.addToMainMenu) ~= "function" then goto continue end
+        -- Found a valid plugin instance not in FM
+        local method = _findPluginMethod(inst)
+        if method then
+            results[#results + 1] = {
+                fm_key = name,
+                method = method,
+                title  = _pluginDisplayName(name),
+            }
+        end
+        ::continue::
+    end
+    return results
+end
+
+-- Scans Dispatcher for available system actions
+local function _scanDispatcherActions()
+    local ok_d, Dispatcher = pcall(require, "dispatcher")
+    if not ok_d or not Dispatcher then return {} end
+    pcall(function() Dispatcher:init() end)
+    local settingsList, dispatcher_menu_order
+    pcall(function()
+        local fn_idx = 1
+        while true do
+            local name, val = debug.getupvalue(Dispatcher.registerAction, fn_idx)
+            if not name then break end
+            if name == "settingsList" then settingsList = val end
+            if name == "dispatcher_menu_order" then dispatcher_menu_order = val end
+            fn_idx = fn_idx + 1
+        end
+    end)
+    if type(settingsList) ~= "table" then return {} end
+    local order = (type(dispatcher_menu_order) == "table" and dispatcher_menu_order)
+        or (function()
+            local t = {}
+            for k in pairs(settingsList) do t[#t+1] = k end
+            table.sort(t)
+            return t
+        end)()
+    local results = {}
+    for _, action_id in ipairs(order) do
+        local def = settingsList[action_id]
+        if type(def) == "table" and def.title and def.category == "none"
+                and (def.condition == nil or def.condition == true) then
+            results[#results + 1] = { id = action_id, title = tostring(def.title) }
+        end
+    end
+    table.sort(results, function(a, b) return a.title < b.title end)
+    return results
+end
+
+-- Probe methods tried in order on plugin instances
+local _PROBE_METHODS = {
+    "onShow", "show", "open", "launch", "onOpen",
+    "onShowHist", "onShowBookInfo", "onShowColl", "onShowCollList",
+    "onShowFileSearch", "onShowFolderShortcutsDialog",
+    "onShowDictionaryLookup", "onShowWikipediaLookup",
+}
+
+-- Finds the first callable entry-point method on a plugin instance
+local function _findPluginMethod(inst)
+    if type(inst) ~= "table" then return nil end
+    for _, m in ipairs(_PROBE_METHODS) do
+        if type(inst[m]) == "function" then return m end
+    end
+    -- Pattern fallback
+    for k, v in pairs(inst) do
+        if type(k) == "string" and type(v) == "function" then
+            if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
+                return k
+            end
+        end
+    end
+    return nil
+end
+
+-- Builds a human-readable display name from a raw plugin name
+local function _pluginDisplayName(raw)
+    raw = (raw or "")
+        :gsub("%.koplugin$", "")
+        :gsub("^filemanager", "")
+        :gsub("[_%-]", " ")
+        :match("^%s*(.-)%s*$")
+    if raw == "" then return "?" end
+    return raw:sub(1,1):upper() .. raw:sub(2)
+end
+
+
 return QA
