@@ -382,58 +382,30 @@ local function _getLoadedPlugins()
     return results
 end
 
+
 local function _harvestFMPlugins()
-    logger.warn("[simpleui] _harvestFMPlugins: checking FM._loaded")
+    logger.warn("[simpleui] _harvestFMPlugins: using PluginLoader.loaded_plugins")
     
     local results = {}
-    local fm = package.loaded["apps/filemanager/filemanager"]
-    fm = fm and fm.instance
-    if not fm then
-        logger.warn("[simpleui] _harvestFMPlugins: FM not available")
-        return results
-    end
+    local PluginLoader = require("pluginloader")
+    local loaded = PluginLoader.loaded_plugins or {}
     
-    -- Check FM._loaded for already-loaded plugins
-    local loaded = fm._loaded
-    if not loaded then
-        logger.warn("[simpleui] _harvestFMPlugins: FM._loaded not available")
-        return results
-    end
+    logger.warn("[simpleui] _harvestFMPlugins: found", #loaded, "loaded plugins")
     
-    logger.warn("[simpleui] _harvestFMPlugins: FM._loaded has", #loaded, "entries")
-    
-    for i, plugin in ipairs(loaded) do
-        if type(plugin) == "table" and plugin.name then
-            local plugin_name = plugin.name
+    for plugin_name, plugin_instance in pairs(loaded) do
+        if type(plugin_name) == "string" and plugin_name ~= "simpleui" and type(plugin_instance) == "table" then
             logger.warn("[simpleui] _harvestFMPlugins: checking", plugin_name)
-            
-            -- Skip our own plugin
-            if plugin_name == "simpleui" then
-                logger.warn("[simpleui] _harvestFMPlugins: skipping simpleui")
-            else
-                -- Find a callable method
-                local action_method = nil
-                for _, method in ipairs({"onShow", "show", "open", "launch", "onOpen", "callback", "menuCallback"}) do
-                    if type(plugin[method]) == "function" then
-                        action_method = method
-                        break
-                    end
-                end
-                
-                if action_method then
-                    table.insert(results, {
-                        name = plugin_name,
-                        display = plugin_name,
-                        method = action_method,
-                        has_menu = true,
-                    })
-                    logger.warn("[simpleui] _harvestFMPlugins: found", plugin_name, "->", action_method)
-                end
+            if type(plugin_instance.addToMainMenu) == "function" then
+                results[#results + 1] = {
+                    name = plugin_name,
+                    title = plugin_name,
+                    launcher = "addToMainMenu",
+                    launcher_target = plugin_instance,
+                }
             end
         end
     end
     
-    logger.warn("[simpleui] _harvestFMPlugins: total found:", #results)
     return results
 end
 
