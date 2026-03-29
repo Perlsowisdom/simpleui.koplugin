@@ -1141,11 +1141,26 @@ function M.navigate(plugin, action_id, fm_self, tabs, force)
                 else
                     showUnavailable(_("Dispatcher not available."))
                 end
-            elseif cfg.plugin_key and cfg.plugin_method and cfg.plugin_key ~= "" then
-                local plugin_inst = fm and fm[cfg.plugin_key]
-                if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
-                    local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
-                    if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
+            elseif cfg.plugin_key and cfg.plugin_key ~= "" then
+                -- First try the cached callback from addToMainMenu discovery
+                if cfg.plugin_method == "__addtomainmenu__" then
+                    local QA_mod = require("sui_quickactions")
+                    local cb = QA_mod and QA_mod._plugin_callbacks and QA_mod._plugin_callbacks[cfg.plugin_key]
+                    if type(cb) == "function" then
+                        local ok, err = pcall(cb)
+                        if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
+                    else
+                        showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
+                    end
+                -- Fall back to method lookup for saved method names
+                elseif cfg.plugin_method and cfg.plugin_method ~= "" then
+                    local plugin_inst = fm and fm[cfg.plugin_key]
+                    if plugin_inst and type(plugin_inst[cfg.plugin_method]) == "function" then
+                        local ok, err = pcall(function() plugin_inst[cfg.plugin_method](plugin_inst) end)
+                        if not ok then showUnavailable(string.format(_("Plugin error: %s"), tostring(err))) end
+                    else
+                        showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
+                    end
                 else
                     showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
                 end

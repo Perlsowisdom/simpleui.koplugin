@@ -208,149 +208,114 @@ end
 -- Plugin scanner helpers (used by showQuickActionDialog)
 -- ---------------------------------------------------------------------------
 
--- Native FM plugin keys — always present, already surfaced as hardcoded entries.
--- Skip these in the generic sweep to avoid duplicates.
-local _NATIVE_FM_KEYS = {
-    history = true, bookinfo = true, collections = true,
-    filesearcher = true, folder_shortcuts = true,
-    languagesupport = true, dictionary = true, wikipedia = true,
-    screenshot = true, menu = true, devicestatus = true,
-    devicelistener = true, networklistener = true,
-    simpleui = true,
-}
-
--- Probe methods tried in order — first match wins.
-local _PROBE_METHODS = Config.PLUGIN_ENTRY_METHODS
-
--- Finds the first callable entry-point method on a plugin instance.
-local function _findPluginMethod(inst)
-    for _, m in ipairs(_PROBE_METHODS) do
-        if type(inst[m]) == "function" then return m end
-    end
-    -- Pattern fallback: onShow*, onOpen*, onLaunch*
-    for k, v in pairs(inst) do
-        if type(k) == "string" and type(v) == "function" then
-            if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
-                return k
-            end
-        end
-    end
-    return nil
-end
-
--- Builds a human-readable display name from a raw plugin name/key string.
-local function _pluginDisplayName(raw)
-    raw = (raw or "")
-        :gsub("%.koplugin$", "")
-        :gsub("^filemanager", "")
-        :gsub("[_%-]", " ")
-        :match("^%s*(.-)%s*$")  -- trim
-    if raw == "" then return "?" end
-    return raw:sub(1,1):upper() .. raw:sub(2)
-end
-
--- Primary discovery: scan the live FileManager instance.
--- FM stores each loaded plugin under fm[plugin.name] (string key) AND as
--- fm[i] (numeric key).  The string-key sweep catches external plugins.
--- Returns { fm_key, method, title } list, sorted by title.
+-- Scans fm.menu.registered_widgets — the same list KOReader's own menu uses.
+-- For each widget, calls addToMainMenu() to harvest its menu entries, then
+-- uses the callback of the first top-level entry as the plugin action.
+-- This is the only approach that reliably discovers every plugin including
+-- external ones (BookFusion, FileBrowserPlus, etc.).
+--
+-- Returns list of { fm_key, title, callback } sorted by title.
+-- fm_key is the plugin's key in fm (for saving to config).
+-- callback is called directly when the user taps the action.
 local function _scanFMPlugins()
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if not fm then
-        logger.dbg("[simpleui] _scanFMPlugins: FM not available")
+    if not fm or not fm.menu then
+        logger.dbg("[simpleui] _scanFMPlugins: FM or fm.menu not available")
         return {}
     end
 
-    -- Step 1: hardcoded built-ins with well-known method names.
-    local KNOWN = {
-        { key = "history",          method = "onShowHist",                  title = _("History")           },
-        { key = "bookinfo",         method = "onShowBookInfo",              title = _("Book Info")         },
-        { key = "collections",      method = "onShowColl",                  title = _("Favorites")         },
-        { key = "collections",      method = "onShowCollList",              title = _("Collections")       },
-        { key = "filesearcher",     method = "onShowFileSearch",            title = _("File Search")       },
-        { key = "folder_shortcuts", method = "onShowFolderShortcutsDialog", title = _("Folder Shortcuts")  },
-        { key = "dictionary",       method = "onShowDictionaryLookup",      title = _("Dictionary Lookup") },
-        { key = "wikipedia",        method = "onShowWikipediaLookup",       title = _("Wikipedia Lookup")  },
-    }
-    local results = {}
-    local seen    = {}  -- dedup key → true
+    local registered = fm.menu.registered_widgets
+    if type(registered) ~= "table" then
+        logger.dbg("[simpleui] _scanFMPlugins: registered_widgets not available")
+        return {}
+    end
 
-    for _, entry in ipairs(KNOWN) do
-        local inst = fm[entry.key]
-        if inst and type(inst[entry.method]) == "function" then
-            local dedup = entry.key .. "|" .. entry.method
-            if not seen[dedup] then
-                seen[dedup] = true
-                results[#results + 1] = {
-                    fm_key = entry.key,
-                    method = entry.method,
-                    title  = entry.title,
-                }
-            end
+    -- Build a reverse map: instance → string key in fm (for saving to config).
+    -- FM stores each plugin under fm[plugin_module.name] (string key) via registerModule.
+    -- registerModule also sets instance.name = "filemanager" .. plugin_module.name,
+    -- so we strip the "filemanager" prefix to recover the original key.
+    local instance_to_key = {}
+    for k, v in pairs(fm) do
+        if type(k) == "string" and type(v) == "table" then
+            instance_to_key[v] = k
         end
     end
 
-    -- Step 2: generic sweep of all string-keyed FM slots.
-    -- This is what discovers BookFusion, FileBrowserPlus, and any other
-    -- third-party plugin that registers itself in the FM.
-    for k, v in pairs(fm) do
-        if type(k) == "string"
-                and type(v) == "table"
-                and not _NATIVE_FM_KEYS[k]
-                and type(v.addToMainMenu) == "function" then
-            local dedup = k .. "|*"
-            if not seen[dedup] then
-                local method = _findPluginMethod(v)
-                if method then
-                    seen[dedup] = true
-                    local raw = (type(v.name) == "string" and v.name ~= "" and v.name) or k
-                    results[#results + 1] = {
-                        fm_key = k,
-                        method = method,
-                        title  = _pluginDisplayName(raw),
-                    }
+    -- Widgets that SimpleUI already surfaces as built-in tab actions —
+    -- no need to show them again in the plugin picker.
+    local BUILTIN_SKIP = {
+        history = true, collections = true, filesearcher = true,
+        folder_shortcuts = true, dictionary = true, wikipedia = true,
+        bookinfo = true, menu = true, screenshot = true,
+        devicestatus = true, devicelistener = true, networklistener = true,
+        languagesupport = true, simpleui = true,
+    }
+
+    local results = {}
+    local seen_keys = {}
+
+    for _, widget in ipairs(registered) do
+        if type(widget) ~= "table" then goto continue end
+        if type(widget.addToMainMenu) ~= "function" then goto continue end
+
+        -- Recover the fm key for this widget instance.
+        local fm_key = instance_to_key[widget]
+        -- Fallback: strip "filemanager" prefix from widget.name
+        if not fm_key and type(widget.name) == "string" then
+            fm_key = widget.name:match("^filemanager(.+)$") or widget.name
+        end
+        if not fm_key then goto continue end
+        if BUILTIN_SKIP[fm_key] then goto continue end
+        if seen_keys[fm_key] then goto continue end
+
+        -- Call addToMainMenu to discover what menu entries this plugin provides.
+        local menu_items = {}
+        local ok, err = pcall(widget.addToMainMenu, widget, menu_items)
+        if not ok then
+            logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error for", fm_key, ":", err)
+            goto continue
+        end
+
+        -- Collect top-level entries that have a callback (i.e. are actionable).
+        for item_key, item in pairs(menu_items) do
+            if type(item) == "table" then
+                local title = item.text
+                local cb    = item.callback
+                -- Some entries use sub_item_table instead of a direct callback;
+                -- for those, drill into the first sub-item that has a callback.
+                if not cb and type(item.sub_item_table) == "table" then
+                    for _, sub in ipairs(item.sub_item_table) do
+                        if type(sub) == "table" and type(sub.callback) == "function" then
+                            cb    = sub.callback
+                            title = sub.text or title
+                            break
+                        end
+                    end
+                end
+                if type(cb) == "function" and type(title) == "string" and title ~= "" then
+                    local dedup = fm_key .. "|" .. item_key
+                    if not seen_keys[dedup] then
+                        seen_keys[dedup] = true
+                        -- Use a closure-safe reference to fm_key for config saving.
+                        local _key = fm_key
+                        local _cb  = cb
+                        results[#results + 1] = {
+                            fm_key   = _key,
+                            title    = title,
+                            callback = _cb,
+                        }
+                    end
                 end
             end
         end
+
+        seen_keys[fm_key] = true
+        ::continue::
     end
 
     table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
-    logger.dbg("[simpleui] _scanFMPlugins:", #results, "plugins found")
-    return results
-end
-
--- Secondary discovery: scan PluginLoader._loaded for plugins that are loaded
--- but NOT registered in the FM (e.g. reader-only plugins, hidden plugins).
--- fm_known_keys: set of keys already found by _scanFMPlugins (dedup).
-local function _scanNonFMPlugins(fm_known_keys)
-    local ok_pl, PluginLoader = pcall(require, "pluginloader")
-    if not ok_pl or not PluginLoader then return {} end
-
-    -- KOReader's PluginLoader._loaded is a list of { name, path, instance? }.
-    -- The exact structure varies by KOReader version; handle both shapes.
-    local loaded_list = PluginLoader._loaded
-    if type(loaded_list) ~= "table" then return {} end
-
-    local results = {}
-    for _, entry in ipairs(loaded_list) do
-        if type(entry) ~= "table" then goto continue end
-        local name = entry.name
-        local inst = entry.instance
-        if type(name) ~= "string" or name == "" or name == "simpleui" then goto continue end
-        if fm_known_keys[name] then goto continue end
-        if type(inst) ~= "table" then goto continue end
-        if type(inst.addToMainMenu) ~= "function" then goto continue end
-        local method = _findPluginMethod(inst)
-        if method then
-            results[#results + 1] = {
-                fm_key = name,
-                method = method,
-                title  = _pluginDisplayName(name),
-            }
-            logger.dbg("[simpleui] _scanNonFMPlugins: extra plugin:", name)
-        end
-        ::continue::
-    end
+    logger.dbg("[simpleui] _scanFMPlugins:", #results, "plugin actions found")
     return results
 end
 
@@ -456,20 +421,13 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
     local function openPluginPicker()
-        -- Primary scan: FM string-keyed plugins (catches external plugins).
         local plugins = _scanFMPlugins()
 
-        -- Secondary scan: PluginLoader entries not already in FM.
-        local fm_key_set = {}
-        for _, p in ipairs(plugins) do fm_key_set[p.fm_key] = true end
-        local extra = _scanNonFMPlugins(fm_key_set)
-        for _, p in ipairs(extra) do plugins[#plugins + 1] = p end
-
-        -- Re-sort after merge.
-        table.sort(plugins, function(a, b) return a.title:lower() < b.title:lower() end)
-
         if #plugins == 0 then
-            UIManager:show(InfoMessage:new{ text = _("No plugins found."), timeout = 3 })
+            UIManager:show(InfoMessage:new{
+                text    = _("No plugins found."),
+                timeout = 3,
+            })
             return
         end
 
@@ -479,12 +437,26 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             buttons[#buttons + 1] = {{ text = _a.title, callback = function()
                 UIManager:close(plugin._qa_plugin_picker)
                 _buildSaveDialog({
-                    fields = { { description = _("Name"), text = cfg.label or _a.title, hint = _("e.g. Rakuyomi…") } },
+                    fields = { {
+                        description = _("Name"),
+                        text        = cfg.label or _a.title,
+                        hint        = _("e.g. Rakuyomi…"),
+                    } },
                     icon_default_label = _("Default (Plugin)"),
                     on_save = function(inputs)
-                        commitQA(sanitize(inputs[1]) or _a.title,
-                            nil, nil, Config.CUSTOM_PLUGIN_ICON,
-                            _a.fm_key, _a.method, nil)
+                        -- Store the callback keyed by fm_key for execution at runtime.
+                        -- Use "__addtomainmenu__" as method sentinel to trigger callback path.
+                        commitQA(
+                            sanitize(inputs[1]) or _a.title,
+                            nil, nil,
+                            Config.CUSTOM_PLUGIN_ICON,
+                            _a.fm_key,
+                            "__addtomainmenu__",
+                            nil
+                        )
+                        -- Cache the callback for execution in navigate()
+                        QA._plugin_callbacks = QA._plugin_callbacks or {}
+                        QA._plugin_callbacks[_a.fm_key] = _a.callback
                     end,
                 })
             end }}
