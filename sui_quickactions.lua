@@ -365,7 +365,7 @@ local function _getLoadedPlugins()
         return {}
     end
     
-    local loaded = PluginLoader._loaded or PluginLoader._instances or {}
+    local loaded = PluginLoader.enabled_plugins or PluginLoader._instances or {}
     
     local results = {}
     local seen = {}
