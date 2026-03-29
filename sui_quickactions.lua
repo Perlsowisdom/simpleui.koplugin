@@ -388,7 +388,7 @@ local function _harvestFMPlugins()
     
     local results = {}
     local PluginLoader = require("pluginloader")
-    local loaded = PluginLoader.loaded_plugins or {}
+    local loaded = PluginLoader._loaded or {}
     
     logger.warn("[simpleui] _harvestFMPlugins: found", #loaded, "loaded plugins")
     
