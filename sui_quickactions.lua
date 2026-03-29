@@ -424,7 +424,7 @@ local function _harvestFMPlugins()
                         local plugin_name = entry:gsub("%.koplugin$", "")
                         
                         -- Actually load the plugin module
-                        local ok_load, mod = pcall(require, plugin_name)
+                        local ok_load, mod = pcall(require, plugin_name .. ".main")
                         if not ok_load or not mod then
                             logger.warn("[simpleui] _harvestFMPlugins: could not load", plugin_name)
                         else
