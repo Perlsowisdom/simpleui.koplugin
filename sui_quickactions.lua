@@ -520,7 +520,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             {{ text = _("Folder"),
                callback = function() UIManager:close(choice_dialog); openPathChooser() end }},
             {{ text = _("Plugin"),
-               callback = function() UIManager:close(choice_dialog); openPluginPicker() end }},
+               callback = function() UIManager:close(choice_dialog); openPluginPicker(plugin) end }},
             {{ text = _("System Actions"),
                callback = function() UIManager:close(choice_dialog); openDispatcherPicker() end }},
             {{ text = _("Cancel"),
