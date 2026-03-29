@@ -365,7 +365,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
     local sanitize = Config.sanitizeLabel
 
-    local function openPathChooser()
+    local function openPathChooser(plugin)
         UIManager:show(PathChooser:new{
             select_directory = true, select_file = false, show_files = false,
             path = start_path, covers_fullscreen = true,
@@ -399,7 +399,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         })
     end
 
-    local function openCollectionPicker()
+    local function openCollectionPicker(plugin)
         local buttons = {}
         for _i, coll_name in ipairs(collections) do
             local name = coll_name
@@ -420,7 +420,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         UIManager:show(plugin._qa_coll_picker)
     end
 
-    local function openPluginPicker()
+    local function openPluginPicker(plugin)
         local plugins = _scanFMPlugins()
 
         if #plugins == 0 then
@@ -475,7 +475,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
 
-    local function openDispatcherPicker()
+    local function openDispatcherPicker(plugin)
         local actions = _scanDispatcherActions()
         if #actions == 0 then
             UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
@@ -852,7 +852,7 @@ function QA.showPluginPickerForTab(plugin, pos)
     local fm_key_set = {}
     for _, p in ipairs(plugins) do fm_key_set[p.fm_key] = true end
     local extra = _scanNonFMPlugins(fm_key_set)
-    for _, p in ipairs(extra) do plugins[#plugins + 1] = p end
+    for _i, p in ipairs(extra) do plugins[#plugins + 1] = p end
     table.sort(plugins, function(a, b) return a.title:lower() < b.title:lower() end)
 
     if #plugins == 0 then
