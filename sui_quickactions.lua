@@ -217,6 +217,30 @@ end
 -- Returns list of { fm_key, title, callback } sorted by title.
 -- fm_key is the plugin's key in fm (for saving to config).
 -- callback is called directly when the user taps the action.
+-- Lazy scan: build plugin list on first use, not at boot time
+local _cached_plugin_list = nil
+
+local function _getPluginList()
+    if _cached_plugin_list ~= nil then return _cached_plugin_list end
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    fm = fm and fm.instance
+    if not fm then
+        logger.warn("[simpleui] _getPluginList: FM not ready yet")
+        _cached_plugin_list = {}
+        return _cached_plugin_list
+    end
+    local fm_plugins = _scanFMPlugins()
+    local fm_key_set = {}
+    for _, p in ipairs(fm_plugins) do fm_key_set[p.fm_key] = true end
+    local extra = _scanNonFMPlugins(fm_key_set)
+    for _, p in ipairs(extra) do fm_plugins[#fm_plugins + 1] = p end
+    table.sort(fm_plugins, function(a, b) return a.title:lower() < b.title:lower() end)
+    _cached_plugin_list = fm_plugins
+    logger.dbg("[simpleui] _getPluginList: found", #fm_plugins, "plugins")
+    return fm_plugins
+end
+
+
 local function _scanFMPlugins()
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
@@ -460,7 +484,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
-        local plugins = _scanFMPlugins()
+        local plugins = _getPluginList()
 
         if #plugins == 0 then
             UIManager:show(InfoMessage:new{
@@ -885,7 +909,7 @@ local function _buildSaveDialog(spec)
 end
 
 function QA.showPluginPickerForTab(plugin, pos)
-    local plugins = _scanFMPlugins()
+    local plugins = _getPluginList()
 
     -- Merge non-FM plugins
     local fm_key_set = {}
