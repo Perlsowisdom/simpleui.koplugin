@@ -452,7 +452,7 @@ local function _scanRegisteredPlugins()
     end
 
     -- Get all loaded plugins
-    if not loaded or #loaded == 0 then
+    if not PluginLoader.loaded_plugins or #PluginLoader.loaded_plugins == 0 then
         logger.warn("[DEBUG] _scanRegisteredPlugins: no plugins loaded")
         return results
     end
@@ -468,8 +468,8 @@ local function _scanRegisteredPlugins()
         end
     end
 
-    for i = 1, #loaded do
-        local plugin_inst = loaded[i]
+    for i = 1, #PluginLoader.loaded_plugins do
+        local plugin_inst = PluginLoader.loaded_plugins[i]
         if type(plugin_inst) ~= "table" or type(plugin_inst.name) ~= "string" then goto continue end
 
         local name = plugin_inst.name
