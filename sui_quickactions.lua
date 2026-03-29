@@ -306,8 +306,8 @@ local function _scanFMPlugins()
                 return self:add(item)
             end,
         }
-        if not inst then goto continue end
-        local ok, err = pcall(inst.addToMainMenu, inst, menu_capturer)
+        if not widget then goto continue end
+        local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
         if not ok then
             logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error for", fm_key, ":", err)
             goto continue
