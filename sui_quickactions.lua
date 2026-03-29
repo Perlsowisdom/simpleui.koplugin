@@ -270,44 +270,75 @@ local function _scanFMPlugins()
         if seen_keys[fm_key] then goto continue end
 
         -- Call addToMainMenu to discover what menu entries this plugin provides.
-        local menu_items = {}
-        local ok, err = pcall(widget.addToMainMenu, widget, menu_items)
+        -- We use a mock menu object that captures items via add() or:registerItem().
+        local menu_capturer = {
+            items = {},
+            add = function(self, item)
+                if type(item) == "table" then
+                    self.items[#self.items + 1] = item
+                end
+            end,
+            registerItem = function(self, item)
+                return self:add(item)
+            end,
+        }
+        local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
         if not ok then
             logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error for", fm_key, ":", err)
             goto continue
         end
 
-        -- Collect top-level entries that have a callback (i.e. are actionable).
-        for item_key, item in pairs(menu_items) do
-            if type(item) == "table" then
-                local title = item.text
-                local cb    = item.callback
-                -- Some entries use sub_item_table instead of a direct callback;
-                -- for those, drill into the first sub-item that has a callback.
-                if not cb and type(item.sub_item_table) == "table" then
-                    for _, sub in ipairs(item.sub_item_table) do
-                        if type(sub) == "table" and type(sub.callback) == "function" then
-                            cb    = sub.callback
-                            title = sub.text or title
-                            break
-                        end
-                    end
-                end
-                if type(cb) == "function" and type(title) == "string" and title ~= "" then
-                    local dedup = fm_key .. "|" .. item_key
-                    if not seen_keys[dedup] then
-                        seen_keys[dedup] = true
-                        -- Use a closure-safe reference to fm_key for config saving.
-                        local _key = fm_key
-                        local _cb  = cb
-                        results[#results + 1] = {
-                            fm_key   = _key,
-                            title    = title,
-                            callback = _cb,
-                        }
+        -- Collect all actionable entries from this plugin.
+        local plugin_actions = {}
+        for _, item in ipairs(menu_capturer.items) do
+            local title = item.text or item.title or ""
+            local cb    = item.callback
+            
+            -- Some entries use sub_item_table
+            if not cb and type(item.sub_item_table) == "table" then
+                for _, sub in ipairs(item.sub_item_table) do
+                    if type(sub) == "table" and type(sub.callback) == "function" then
+                        cb = sub.callback
+                        title = sub.text or sub.title or title
+                        break
                     end
                 end
             end
+            
+            if type(cb) == "function" and title ~= "" then
+                plugin_actions[#plugin_actions + 1] = {
+                    title = tostring(title),
+                    callback = cb,
+                }
+            end
+        end
+
+        if #plugin_actions == 0 then
+            logger.dbg("[simpleui] _scanFMPlugins: no actionable items for", fm_key)
+            goto continue
+        end
+
+        seen_keys[fm_key] = true
+
+        -- If multiple actions, show as grouped entry with submenu.
+        -- If single action, show directly.
+        local dedup = fm_key .. "|*"
+        local _key = fm_key
+        if #plugin_actions == 1 then
+            results[#results + 1] = {
+                fm_key   = _key,
+                title    = plugin_actions[1].title,
+                callback = plugin_actions[1].callback,
+            }
+        else
+            -- Multiple actions - show "Open X Menu" with submenu
+            results[#results + 1] = {
+                fm_key        = _key,
+                title         = "▸ " .. _pluginDisplayName(fm_key) .. " Menu",
+                has_submenu   = true,
+                submenu_items = plugin_actions,
+            }
+            logger.dbg("[simpleui] _scanFMPlugins:", fm_key, "has", #plugin_actions, "menu items")
         end
 
         seen_keys[fm_key] = true
