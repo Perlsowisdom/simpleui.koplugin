@@ -231,7 +231,7 @@ local function _scanFMPlugins()
         local mod = fm[entry.key]
         if mod and type(mod[entry.method]) == "function" then
             logger.warn("[DEBUG] _scanFMPlugins: found built-in FM plugin:", entry.key)
-            results[#results + 1] = { fm_key = entry.key, fm_method = entry.method, title = entry.title }
+            results[#results + 1] = { name = entry.key, method = entry.method, title = entry.title }
         end
     end
     local native_keys = {
@@ -265,7 +265,7 @@ local function _scanFMPlugins()
             local raw     = (val.name or fm_key):gsub("^filemanager", "")
             local display = raw:sub(1,1):upper() .. raw:sub(2)
             logger.warn("[DEBUG] _scanFMPlugins: discovered FM plugin:", fm_key, "method:", method)
-            results[#results + 1] = { fm_key = fm_key, fm_method = method, title = display }
+            results[#results + 1] = { name = fm_key, method = method, title = display }
         end
         ::cont::
     end
@@ -464,7 +464,7 @@ local function _scanDispatcherActions()
         local def = settingsList[action_id]
         if type(def) == "table" and def.title and def.category == "none"
                 and (def.condition == nil or def.condition == true) then
-            results[#results + 1] = { id = action_id, title = tostring(def.title) }
+            results[#results + 1] = { name = action_id, title = tostring(def.title) }
         end
     end
     table.sort(results, function(a, b) return a.title < b.title end)
@@ -584,13 +584,13 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         local combined = {}
         for _, p in ipairs(fm_plugins) do
             if p and p.fm_key then
-                seen[p.fm_key] = true
+                seen[p.name] = true
                 combined[#combined + 1] = p
             end
         end
         for _, p in ipairs(registered_plugins) do
-            if not seen[p.fm_key] then
-                seen[p.fm_key] = true
+            if not seen[p.name] and p.name then
+                seen[p.name] = true
                 combined[#combined + 1] = p
             end
         end
