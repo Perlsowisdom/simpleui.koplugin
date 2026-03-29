@@ -217,18 +217,18 @@ local function _scanFMPlugins()
         return {} end
     logger.warn("[DEBUG] _scanFMPlugins: fm ok, starting scan")
     local known = {
-        { key = "history",          method = "onShowHist",                      title = _("History")           },
-        { key = "bookinfo",         method = "onShowBookInfo",                  title = _("Book Info")         },
-        { key = "collections",      method = "onShowColl",                      title = _("Favorites")         },
-        { key = "collections",      method = "onShowCollList",                  title = _("Collections")       },
-        { key = "filesearcher",     method = "onShowFileSearch",                title = _("File Search")       },
-        { key = "folder_shortcuts", method = "onShowFolderShortcutsDialog",     title = _("Folder Shortcuts")  },
-        { key = "dictionary",       method = "onShowDictionaryLookup",          title = _("Dictionary Lookup") },
-        { key = "wikipedia",        method = "onShowWikipediaLookup",           title = _("Wikipedia Lookup")  },
+        { name = "history",          method = "onShowHist",                      title = _("History")           },
+        { name = "bookinfo",         method = "onShowBookInfo",                  title = _("Book Info")         },
+        { name = "collections",      method = "onShowColl",                      title = _("Favorites")         },
+        { name = "collections",      method = "onShowCollList",                  title = _("Collections")       },
+        { name = "filesearcher",     method = "onShowFileSearch",                title = _("File Search")       },
+        { name = "folder_shortcuts", method = "onShowFolderShortcutsDialog",     title = _("Folder Shortcuts")  },
+        { name = "dictionary",       method = "onShowDictionaryLookup",          title = _("Dictionary Lookup") },
+        { name = "wikipedia",        method = "onShowWikipediaLookup",           title = _("Wikipedia Lookup")  },
     }
     local results = {}
     for _, entry in ipairs(known) do
-        local mod = fm[entry.key]
+        local mod = fm[entry.name]
         if mod and type(mod[entry.method]) == "function" then
             logger.warn("[DEBUG] _scanFMPlugins: found built-in FM plugin:", entry.key)
             results[#results + 1] = { name = entry.key, method = entry.method, title = entry.title }
@@ -291,15 +291,17 @@ local function _getLoadedPlugins()
         return {}
     end
     
-    local loaded = PluginLoader.loaded_plugins or {} or {}
+    local loaded = PluginLoader._loaded or {} or {}
     
     local results = {}
     local seen = {}
     
-    for name, plugin in pairs(loaded) do
-        if type(name) == "string" and type(plugin) == "table" and plugin.name and not seen[name] then
+    for _, item in ipairs(loaded) do
+        local name = item.name
+        local plugin_inst = item.instance
+        if name and plugin_inst and type(plugin_inst) == "table" and not seen[name] then
             seen[name] = true
-            results[#results + 1] = plugin
+            results[#results + 1] = { name = name, instance = plugin_inst }
             logger.warn("[simpleui] _getLoadedPlugins: found:", name)
         end
     end
@@ -394,7 +396,7 @@ local function _scanRegisteredPlugins()
         end
     end
 
-    local loaded = PluginLoader.loaded_plugins or {} or {}; for i = 1, #loaded do
+    local loaded = PluginLoader._loaded or {} or {}; for i = 1, #loaded do
         local plugin_inst = loaded[i]
         if type(plugin_inst) ~= "table" or type(plugin_inst.name) ~= "string" then goto continue end
 
