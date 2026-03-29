@@ -255,25 +255,7 @@ local function _scanFMPlugins()
         languagesupport = true, simpleui = true,
     }
 
-    local results = {}
-    local seen_keys = {}
-
-    for _, widget in ipairs(registered) do
-        if type(widget) ~= "table" then goto continue end
-        if type(widget.addToMainMenu) ~= "function" then goto continue end
-
-        -- Recover the fm key for this widget instance.
-        local fm_key = instance_to_key[widget]
-        -- Fallback: strip "filemanager" prefix from widget.name
-        if not fm_key and type(widget.name) == "string" then
-            fm_key = widget.name:match("^filemanager(.+)$") or widget.name
-        end
-        if not fm_key then goto continue end
-        if BUILTIN_SKIP[fm_key] then goto continue end
-        if seen_keys[fm_key] then goto continue end
-
-        -- Call addToMainMenu on the PLUGIN INSTANCE (not FM) to discover menu entries.
-        -- The plugin instance is where addToMainMenu is actually defined.
+    local function makeMenuForPlugin(widget)
         local menu_capturer = {
             items = {},
             add = function(self, item)
@@ -285,12 +267,33 @@ local function _scanFMPlugins()
                 return self:add(item)
             end,
         }
-        if not widget then goto continue end
+        if type(widget.addToMainMenu) ~= "function" then return nil end
         local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
         if not ok then
-            logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error for", fm_key, ":", err)
-            goto continue
+            logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error:", err)
+            return nil
         end
+        return menu_capturer
+    end
+
+    local results = {}
+    local seen_keys = {}
+
+    for _, widget in ipairs(registered) do
+        if type(widget) ~= "table" then goto continue end
+        local menu_capturer = makeMenuForPlugin(widget)
+        if not menu_capturer then goto continue end
+
+        -- Recover the fm key for this widget instance.
+        local fm_key = instance_to_key[widget]
+        -- Fallback: strip "filemanager" prefix from widget.name
+        if not fm_key and type(widget.name) == "string" then
+            fm_key = widget.name:match("^filemanager(.+)$") or widget.name
+        end
+        if not fm_key then goto continue end
+        if BUILTIN_SKIP[fm_key] then goto continue end
+        if seen_keys[fm_key] then goto continue end
+        seen_keys[fm_key] = true
 
         -- Collect all actionable entries from this plugin.
         local plugin_actions = {}
@@ -321,8 +324,6 @@ local function _scanFMPlugins()
             logger.dbg("[simpleui] _scanFMPlugins: no actionable items for", fm_key)
             goto continue
         end
-
-        seen_keys[fm_key] = true
 
         -- If multiple actions, show as grouped entry with submenu.
         -- If single action, show directly.
@@ -909,14 +910,8 @@ local function _buildSaveDialog(spec)
 end
 
 function QA.showPluginPickerForTab(plugin, pos)
-    local plugins = _scanFMPlugins()
+    local plugins = _getPluginList()
 
-    -- Merge non-FM plugins
-    local fm_key_set = {}
-    for _, p in ipairs(plugins) do fm_key_set[p.fm_key] = true end
-    local extra = _scanNonFMPlugins(fm_key_set)
-    for _i, p in ipairs(extra) do plugins[#plugins + 1] = p end
-    table.sort(plugins, function(a, b) return a.title:lower() < b.title:lower() end)
 
     if #plugins == 0 then
         local UIManager_ = require("ui/uimanager")

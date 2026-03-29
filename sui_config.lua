@@ -130,25 +130,6 @@ for _i, id in ipairs(M.DEFAULT_TABS) do
 end
 
 -- Plugin entry point methods to try, in order of preference.
--- Shared between sui_quickactions.lua and sui_bottombar.lua.
-M.PLUGIN_ENTRY_METHODS = {
-    "onShow",
-    "show",
-    "open",
-    "onOpen",
-    "launch",
-    "onSearchBooks",
-    "onShowStore",
-    "onShowTextEditor",
-    "onShowWallabag",
-    "onShowCalendar",
-    "onShowCalibre",
-    "onShowDropbox",
-    "onShowEvernote",
-    "onShowZotero",
-    "onShowPlugin",
-    "onShowStatistics",
-}
 
 -- ---------------------------------------------------------------------------
 -- Predefined action catalogue
