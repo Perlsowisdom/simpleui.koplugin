@@ -315,7 +315,10 @@ local function _scanFMPlugins()
     end
 
     table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
-    logger.dbg("[simpleui] _scanFMPlugins:", #results, "plugin actions found")
+    for _, p in ipairs(results) do
+        logger.dbg("[simpleui] _scanFMPlugins: found plugin:", p.fm_key, "method:", p.method, "title:", p.title)
+    end
+    logger.dbg("[simpleui] _scanFMPlugins: total", #results, "plugin actions found")
     return results
 end
 
