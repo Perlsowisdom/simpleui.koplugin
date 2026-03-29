@@ -267,7 +267,7 @@ local function _scanFMPlugins()
                 return self:add(item)
             end,
         }
-        if type(widget.addToMainMenu) ~= "function" then return nil end
+        if type(widget) ~= "table" or type(widget.addToMainMenu) ~= "function" then return nil end
         local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
         if not ok then
             logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error:", err)
