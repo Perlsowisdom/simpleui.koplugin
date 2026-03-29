@@ -220,27 +220,6 @@ end
 -- Lazy scan: build plugin list on first use, not at boot time
 local _cached_plugin_list = nil
 
-local function _getPluginList()
-    if _cached_plugin_list ~= nil then return _cached_plugin_list end
-    local fm = package.loaded["apps/filemanager/filemanager"]
-    fm = fm and fm.instance
-    if not fm then
-        logger.warn("[simpleui] _getPluginList: FM not ready yet")
-        _cached_plugin_list = {}
-        return _cached_plugin_list
-    end
-    local fm_plugins = _scanFMPlugins()
-    local fm_key_set = {}
-    for _, p in ipairs(fm_plugins) do fm_key_set[p.fm_key] = true end
-    local extra = _scanNonFMPlugins(fm_key_set)
-    for _, p in ipairs(extra) do fm_plugins[#fm_plugins + 1] = p end
-    table.sort(fm_plugins, function(a, b) return a.title:lower() < b.title:lower() end)
-    _cached_plugin_list = fm_plugins
-    logger.dbg("[simpleui] _getPluginList: found", #fm_plugins, "plugins")
-    return fm_plugins
-end
-
-
 local function _scanFMPlugins()
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
@@ -845,6 +824,27 @@ end
 -- spec.on_save(inputs)
 -- spec.icon_default_label
 -- spec.title (optional)
+local function _getPluginList()
+    if _cached_plugin_list ~= nil then return _cached_plugin_list end
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    fm = fm and fm.instance
+    if not fm then
+        logger.warn("[simpleui] _getPluginList: FM not ready yet")
+        _cached_plugin_list = {}
+        return _cached_plugin_list
+    end
+    local fm_plugins = _scanFMPlugins()
+    local fm_key_set = {}
+    for _, p in ipairs(fm_plugins) do fm_key_set[p.fm_key] = true end
+    local extra = _scanNonFMPlugins(fm_key_set)
+    for _, p in ipairs(extra) do fm_plugins[#fm_plugins + 1] = p end
+    table.sort(fm_plugins, function(a, b) return a.title:lower() < b.title:lower() end)
+    _cached_plugin_list = fm_plugins
+    logger.dbg("[simpleui] _getPluginList: found", #fm_plugins, "plugins")
+    return fm_plugins
+end
+
+
 local function _buildSaveDialog(spec)
     local title = spec.title or dlg_title
     local active_dialog = nil
