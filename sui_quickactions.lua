@@ -384,28 +384,59 @@ end
 
 
 local function _harvestFMPlugins()
-    logger.warn("[simpleui] _harvestFMPlugins: using PluginLoader.loaded_plugins")
-    
+    -- Get plugins from FM's plugin tracking (most reliable on Kobo)
+    local fm = package.loaded["apps/filemanager/filemanager"]
+    fm = fm and fm.instance
     local results = {}
-    local PluginLoader = require("pluginloader")
-    local loaded = PluginLoader._loaded or {}
     
-    logger.warn("[simpleui] _harvestFMPlugins: found", #loaded, "loaded plugins")
+    if not fm then
+        logger.warn("[simpleui] _harvestFMPlugins: FM not available")
+        return results
+    end
     
-    for plugin_name, plugin_instance in pairs(loaded) do
+    -- Try FM's _loaded table first
+    local fm_loaded = fm._loaded or {}
+    if next(fm_loaded) then
+        logger.warn("[simpleui] _harvestFMPlugins: FM._loaded has", #fm_loaded, "entries")
+    end
+    
+    -- Collect all plugins from FM and package table
+    local seen = {}
+    
+    -- Check FM's registered plugins
+    for plugin_name, plugin_instance in pairs(fm_loaded) do
         if type(plugin_name) == "string" and plugin_name ~= "simpleui" and type(plugin_instance) == "table" then
-            logger.warn("[simpleui] _harvestFMPlugins: checking", plugin_name)
-            if type(plugin_instance.addToMainMenu) == "function" then
+            if not seen[plugin_name] and type(plugin_instance.addToMainMenu) == "function" then
+                seen[plugin_name] = true
                 results[#results + 1] = {
                     name = plugin_name,
                     title = plugin_name,
                     launcher = "addToMainMenu",
                     launcher_target = plugin_instance,
                 }
+                logger.warn("[simpleui] _harvestFMPlugins: found", plugin_name)
             end
         end
     end
     
+    -- Also check package.loaded for plugin instances
+    for name, mod in pairs(package.loaded) do
+        if type(name) == "string" and name:match("^plugins/") and name:match("%.koplugin$") then
+            local plugin_name = name:match("^plugins/(.+)/.-$") or name:match("^plugins/(.+)$")
+            if plugin_name and not seen[plugin_name] and type(mod) == "table" and type(mod.addToMainMenu) == "function" then
+                seen[plugin_name] = true
+                results[#results + 1] = {
+                    name = plugin_name,
+                    title = plugin_name,
+                    launcher = "addToMainMenu",
+                    launcher_target = mod,
+                }
+                logger.warn("[simpleui] _harvestFMPlugins: found from package.loaded:", plugin_name)
+            end
+        end
+    end
+    
+    logger.warn("[simpleui] _harvestFMPlugins: total plugins found:", #results)
     return results
 end
 
