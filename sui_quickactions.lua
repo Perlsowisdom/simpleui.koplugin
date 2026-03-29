@@ -269,8 +269,8 @@ local function _scanFMPlugins()
         if BUILTIN_SKIP[fm_key] then goto continue end
         if seen_keys[fm_key] then goto continue end
 
-        -- Call addToMainMenu to discover what menu entries this plugin provides.
-        -- We use a mock menu object that captures items via add() or:registerItem().
+        -- Call addToMainMenu on the PLUGIN INSTANCE (not FM) to discover menu entries.
+        -- The plugin instance is where addToMainMenu is actually defined.
         local menu_capturer = {
             items = {},
             add = function(self, item)
@@ -282,7 +282,7 @@ local function _scanFMPlugins()
                 return self:add(item)
             end,
         }
-        local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
+        local ok, err = pcall(inst.addToMainMenu, inst, menu_capturer)
         if not ok then
             logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error for", fm_key, ":", err)
             goto continue
