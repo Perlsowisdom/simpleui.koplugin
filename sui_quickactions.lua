@@ -463,7 +463,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
-        local plugins = _getPluginList()
+        local plugins = _scanFMPlugins()
 
         if #plugins == 0 then
             UIManager:show(InfoMessage:new{
@@ -909,7 +909,7 @@ local function _buildSaveDialog(spec)
 end
 
 function QA.showPluginPickerForTab(plugin, pos)
-    local plugins = _getPluginList()
+    local plugins = _scanFMPlugins()
 
     -- Merge non-FM plugins
     local fm_key_set = {}
