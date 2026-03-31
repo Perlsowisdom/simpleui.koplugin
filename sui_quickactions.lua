@@ -466,7 +466,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
-        local plugins = QA._getPluginList()
+        local plugins = _getPluginList()
 
         if #plugins == 0 then
             UIManager:show(InfoMessage:new{
@@ -894,7 +894,7 @@ function QA._getPluginList()
     local fm_plugins = _scanFMPlugins()
     local fm_key_set = {}
     for _, p in ipairs(fm_plugins) do fm_key_set[p.fm_key] = true end
-    local extra = _scanNonFMPlugins(fm_key_set)
+    local extra = QA._scanNonFMPlugins(fm_key_set)
     for _, p in ipairs(extra) do fm_plugins[#fm_plugins + 1] = p end
     table.sort(fm_plugins, function(a, b) return a.title:lower() < b.title:lower() end)
     _cached_plugin_list = fm_plugins
@@ -1012,7 +1012,7 @@ function QA.showDispatcherPickerForTab(plugin, pos)
 end
 
 function QA.showPluginPickerForTab(plugin, pos)
-    local plugins = QA._getPluginList()
+    local plugins = _getPluginList()
 
     if #plugins == 0 then
         local UIManager_ = require("ui/uimanager")
@@ -1098,7 +1098,7 @@ end
 
 -- Scans PluginLoader._loaded for plugins that are loaded but not registered in FM
 -- (e.g. reader-only plugins that don't add to main menu).
-local function _scanNonFMPlugins(fm_known_keys)
+function QA._scanNonFMPlugins(fm_known_keys)
     local ok_pl, PluginLoader = pcall(require, "pluginloader")
     if not ok_pl or not PluginLoader then return {} end
     local loaded_list = PluginLoader._loaded
