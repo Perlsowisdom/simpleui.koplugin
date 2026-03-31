@@ -1155,17 +1155,18 @@ local function _scanNonFMPlugins(fm_known_keys)
         -- but have a callable onShow/show/open/launch method.
         local method = _findPluginMethod(inst)
         if method then
-            -- Cache a callable that invokes the discovered method at runtime.
-            -- This mirrors the callback-harvesting path above and allows
-            -- navigate() to execute the method without a separate lookup.
+            -- Shadow loop variables in an IIFE so each closure captures its own
+            -- values, not the final iteration's values (Lua closures capture
+            -- upvalues by reference, not by value).
+            local _name   = name
+            local _inst   = inst
+            local _method = method
             results[#results + 1] = {
-                fm_key   = name,
-                method   = method,
-                title    = _pluginDisplayName(name),
+                fm_key   = _name,
+                method   = _method,
+                title    = _pluginDisplayName(_name),
                 callback = function()
-                    local fm_key_for_cb = name
-                    local inst_for_cb   = inst
-                    pcall(function() inst_for_cb[method](inst_for_cb) end)
+                    pcall(function() _inst[_method](_inst) end)
                 end,
             }
         end
