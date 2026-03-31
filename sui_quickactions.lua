@@ -956,6 +956,51 @@ local function _buildSaveDialog(spec)
     pcall(function() active_dialog:onShowKeyboard() end)
 end
 
+function QA.showDispatcherPickerForTab(plugin, pos)
+    local actions = _scanDispatcherActions()
+    if #actions == 0 then
+        local UIManager_ = require("ui/uimanager")
+        local InfoMessage_ = require("ui/widget/infomessage")
+        UIManager_:show(InfoMessage_:new{ text = _("No system actions found."), timeout = 3 })
+        return
+    end
+    local ButtonDialog_ = require("ui/widget/buttondialog")
+    local UIManager_    = require("ui/uimanager")
+    local buttons = {}
+    table.sort(actions, function(a, b) return a.title:lower() < b.title:lower() end)
+    for _i, a in ipairs(actions) do
+        local _a = a
+        buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+            UIManager_:close(plugin._qa_tab_dispatcher_picker)
+            local qa_id = Config.nextCustomQAId()
+            local list  = Config.getCustomQAList()
+            list[#list + 1] = qa_id
+            Config.saveCustomQAList(list)
+            Config.saveCustomQAConfig(qa_id, _a.title, nil, nil,
+                Config.CUSTOM_DISPATCHER_ICON, nil, nil, _a.id)
+            QA.invalidateCustomQACache()
+            local tabs = Config.loadTabConfig()
+            local old_id = tabs[pos]
+            tabs[pos] = qa_id
+            for i, tid in ipairs(tabs) do
+                if i ~= pos and tid == qa_id then tabs[i] = old_id; break end
+            end
+            Config._ensureHomePresent(tabs)
+            Config.saveTabConfig(tabs)
+            plugin:_scheduleRebuild()
+        end }}
+    end
+    buttons[#buttons + 1] = {{ text = _("Cancel"), callback = function()
+        UIManager_:close(plugin._qa_tab_dispatcher_picker)
+    end }}
+    plugin._qa_tab_dispatcher_picker = ButtonDialog_:new{
+        title        = _("System Action"),
+        width_factor = 0.7,
+        buttons      = buttons,
+    }
+    UIManager_:show(plugin._qa_tab_dispatcher_picker)
+end
+
 function QA.showPluginPickerForTab(plugin, pos)
     local plugins = _getPluginList()
 
