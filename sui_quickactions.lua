@@ -220,6 +220,29 @@ end
 -- Lazy scan: build plugin list on first use, not at boot time
 local _cached_plugin_list = nil
 
+-- Shared menu capturer factory — defined at module level so both _scanFMPlugins and
+-- _scanNonFMPlugins can use it without duplicating the closure.
+local function _makeMenuForPlugin(widget)
+    local menu_capturer = {
+        items = {},
+        add = function(self, item)
+            if type(item) == "table" then
+                self.items[#self.items + 1] = item
+            end
+        end,
+        registerItem = function(self, item)
+            return self:add(item)
+        end,
+    }
+    if type(widget) ~= "table" or type(widget.addToMainMenu) ~= "function" then return nil end
+    local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
+    if not ok then
+        logger.warn("[simpleui] _scanPlugins: addToMainMenu error:", err)
+        return nil
+    end
+    return menu_capturer
+end
+
 local function _scanFMPlugins()
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
@@ -255,33 +278,12 @@ local function _scanFMPlugins()
         languagesupport = true, simpleui = true,
     }
 
-    local function makeMenuForPlugin(widget)
-        local menu_capturer = {
-            items = {},
-            add = function(self, item)
-                if type(item) == "table" then
-                    self.items[#self.items + 1] = item
-                end
-            end,
-            registerItem = function(self, item)
-                return self:add(item)
-            end,
-        }
-        if type(widget) ~= "table" or type(widget.addToMainMenu) ~= "function" then return nil end
-        local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
-        if not ok then
-            logger.warn("[simpleui] _scanFMPlugins: addToMainMenu error:", err)
-            return nil
-        end
-        return menu_capturer
-    end
-
     local results = {}
     local seen_keys = {}
 
     for _, widget in ipairs(registered) do
         if type(widget) ~= "table" then goto continue end
-        local menu_capturer = makeMenuForPlugin(widget)
+        local menu_capturer = _makeMenuForPlugin(widget)
         if not menu_capturer then goto continue end
 
         -- Recover the fm key for this widget instance.
@@ -474,35 +476,80 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             return
         end
 
+        local function showPluginSubmenu(plugins_list, parent_picker, title_override)
+            local sub_buttons = {}
+            for _, a in ipairs(plugins_list) do
+                local _a = a
+                sub_buttons[#sub_buttons + 1] = {{ text = _a.title, callback = function()
+                    UIManager:close(plugin._qa_plugin_sub_picker)
+                    UIManager:close(parent_picker)
+                    _buildSaveDialog({
+                        fields = { {
+                            description = _("Name"),
+                            text        = cfg.label or _a.title,
+                            hint        = _("e.g. Rakuyomi…"),
+                        } },
+                        icon_default_label = _("Default (Plugin)"),
+                        on_save = function(inputs)
+                            commitQA(
+                                sanitize(inputs[1]) or _a.title,
+                                nil, nil,
+                                Config.CUSTOM_PLUGIN_ICON,
+                                _a.fm_key,
+                                "__addtomainmenu__",
+                                nil
+                            )
+                            QA._plugin_callbacks = QA._plugin_callbacks or {}
+                            QA._plugin_callbacks[_a.fm_key] = _a.callback
+                        end,
+                    })
+                end }}
+            end
+            sub_buttons[#sub_buttons + 1] = {{ text = _("Back"), callback = function()
+                UIManager:close(plugin._qa_plugin_sub_picker)
+            end }}
+            plugin._qa_plugin_sub_picker = ButtonDialog:new{
+                title        = title_override or _("Plugin Actions"),
+                width_factor = 0.7,
+                buttons      = sub_buttons,
+            }
+            UIManager:show(plugin._qa_plugin_sub_picker)
+        end
+
         local buttons = {}
         for _, a in ipairs(plugins) do
             local _a = a
-            buttons[#buttons + 1] = {{ text = _a.title, callback = function()
-                UIManager:close(plugin._qa_plugin_picker)
-                _buildSaveDialog({
-                    fields = { {
-                        description = _("Name"),
-                        text        = cfg.label or _a.title,
-                        hint        = _("e.g. Rakuyomi…"),
-                    } },
-                    icon_default_label = _("Default (Plugin)"),
-                    on_save = function(inputs)
-                        -- Store the callback keyed by fm_key for execution at runtime.
-                        -- Use "__addtomainmenu__" as method sentinel to trigger callback path.
-                        commitQA(
-                            sanitize(inputs[1]) or _a.title,
-                            nil, nil,
-                            Config.CUSTOM_PLUGIN_ICON,
-                            _a.fm_key,
-                            "__addtomainmenu__",
-                            nil
-                        )
-                        -- Cache the callback for execution in navigate()
-                        QA._plugin_callbacks = QA._plugin_callbacks or {}
-                        QA._plugin_callbacks[_a.fm_key] = _a.callback
-                    end,
-                })
-            end }}
+            if _a.has_submenu and _a.submenu_items then
+                -- Grouped plugin: show a submenu of available actions
+                buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                    showPluginSubmenu(_a.submenu_items, plugin._qa_plugin_picker, _a.title)
+                end }}
+            else
+                -- Single-action plugin
+                buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                    UIManager:close(plugin._qa_plugin_picker)
+                    _buildSaveDialog({
+                        fields = { {
+                            description = _("Name"),
+                            text        = cfg.label or _a.title,
+                            hint        = _("e.g. Rakuyomi…"),
+                        } },
+                        icon_default_label = _("Default (Plugin)"),
+                        on_save = function(inputs)
+                            commitQA(
+                                sanitize(inputs[1]) or _a.title,
+                                nil, nil,
+                                Config.CUSTOM_PLUGIN_ICON,
+                                _a.fm_key,
+                                "__addtomainmenu__",
+                                nil
+                            )
+                            QA._plugin_callbacks = QA._plugin_callbacks or {}
+                            QA._plugin_callbacks[_a.fm_key] = _a.callback
+                        end,
+                    })
+                end }}
+            end
         end
 
         buttons[#buttons + 1] = {{ text = _("Cancel"), callback = function()
@@ -912,7 +959,6 @@ end
 function QA.showPluginPickerForTab(plugin, pos)
     local plugins = _getPluginList()
 
-
     if #plugins == 0 then
         local UIManager_ = require("ui/uimanager")
         local InfoMessage_ = require("ui/widget/infomessage")
@@ -922,30 +968,61 @@ function QA.showPluginPickerForTab(plugin, pos)
 
     local ButtonDialog_ = require("ui/widget/buttondialog")
     local UIManager_    = require("ui/uimanager")
+
+    local function commitTabPlugin(a)
+        UIManager_:close(plugin._qa_tab_plugin_picker)
+        local qa_id = Config.nextCustomQAId()
+        local list  = Config.getCustomQAList()
+        list[#list + 1] = qa_id
+        Config.saveCustomQAList(list)
+        Config.saveCustomQAConfig(qa_id, a.title, nil, nil,
+            Config.CUSTOM_PLUGIN_ICON, a.fm_key, "__addtomainmenu__", nil)
+        QA._plugin_callbacks = QA._plugin_callbacks or {}
+        QA._plugin_callbacks[a.fm_key] = a.callback
+        QA.invalidateCustomQACache()
+        local tabs = Config.loadTabConfig()
+        local old_id = tabs[pos]
+        tabs[pos] = qa_id
+        for i, tid in ipairs(tabs) do
+            if i ~= pos and tid == qa_id then tabs[i] = old_id; break end
+        end
+        Config._ensureHomePresent(tabs)
+        Config.saveTabConfig(tabs)
+        plugin:_scheduleRebuild()
+    end
+
+    local function showTabPluginSubmenu(plugins_list, title_override)
+        local sub_buttons = {}
+        for _, a in ipairs(plugins_list) do
+            local _a = a
+            sub_buttons[#sub_buttons + 1] = {{ text = _a.title, callback = function()
+                UIManager_:close(plugin._qa_tab_plugin_sub_picker)
+                commitTabPlugin(_a)
+            end }}
+        end
+        sub_buttons[#sub_buttons + 1] = {{ text = _("Back"), callback = function()
+            UIManager_:close(plugin._qa_tab_plugin_sub_picker)
+        end }}
+        plugin._qa_tab_plugin_sub_picker = ButtonDialog_:new{
+            title        = title_override or _("Plugin Actions"),
+            width_factor = 0.7,
+            buttons      = sub_buttons,
+        }
+        UIManager_:show(plugin._qa_tab_plugin_sub_picker)
+    end
+
     local buttons = {}
     for _, a in ipairs(plugins) do
         local _a = a
-        buttons[#buttons + 1] = {{ text = _a.title, callback = function()
-            UIManager_:close(plugin._qa_tab_plugin_picker)
-            -- Save as a custom QA, then add it to the tabs at pos.
-            local qa_id = Config.nextCustomQAId()
-            local list  = Config.getCustomQAList()
-            list[#list + 1] = qa_id
-            Config.saveCustomQAList(list)
-            Config.saveCustomQAConfig(qa_id, _a.title, nil, nil,
-                Config.CUSTOM_PLUGIN_ICON, _a.fm_key, _a.method, nil)
-            QA.invalidateCustomQACache()
-            local tabs = Config.loadTabConfig()
-            local old_id = tabs[pos]
-            tabs[pos] = qa_id
-            -- If new id was already in tabs elsewhere, swap it out.
-            for i, tid in ipairs(tabs) do
-                if i ~= pos and tid == qa_id then tabs[i] = old_id; break end
-            end
-            Config._ensureHomePresent(tabs)
-            Config.saveTabConfig(tabs)
-            plugin:_scheduleRebuild()
-        end }}
+        if _a.has_submenu and _a.submenu_items then
+            buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                showTabPluginSubmenu(_a.submenu_items, _a.title)
+            end }}
+        else
+            buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                commitTabPlugin(_a)
+            end }}
+        end
     end
     buttons[#buttons + 1] = {{ text = _("Cancel"), callback = function()
         UIManager_:close(plugin._qa_tab_plugin_picker)
@@ -968,15 +1045,64 @@ local function _scanNonFMPlugins(fm_known_keys)
     if type(loaded_list) ~= "table" then return {} end
 
     local results = {}
+    local seen_keys = {}
+
     for _, entry in ipairs(loaded_list) do
         if type(entry) ~= "table" then goto continue end
         local name = entry.name
         local inst = entry.instance
         if type(name) ~= "string" or name == "" or name == "simpleui" then goto continue end
         if fm_known_keys[name] then goto continue end
+        if seen_keys[name] then goto continue end
+        seen_keys[name] = true
         if type(inst) ~= "table" then goto continue end
-        if type(inst.addToMainMenu) ~= "function" then goto continue end
-        -- Found a valid plugin instance not in FM
+
+        -- First try to harvest menu entries via addToMainMenu (same approach as FM).
+        local menu_capturer = _makeMenuForPlugin(inst)
+        if menu_capturer and #menu_capturer.items > 0 then
+            -- Collect all actionable entries from this plugin.
+            local plugin_actions = {}
+            for _, item in ipairs(menu_capturer.items) do
+                local title = item.text or item.title or ""
+                local cb    = item.callback
+                if not cb and type(item.sub_item_table) == "table" then
+                    for _, sub in ipairs(item.sub_item_table) do
+                        if type(sub) == "table" and type(sub.callback) == "function" then
+                            cb = sub.callback
+                            title = sub.text or sub.title or title
+                            break
+                        end
+                    end
+                end
+                if type(cb) == "function" and title ~= "" then
+                    plugin_actions[#plugin_actions + 1] = {
+                        title = tostring(title),
+                        callback = cb,
+                    }
+                end
+            end
+
+            if #plugin_actions > 0 then
+                if #plugin_actions == 1 then
+                    results[#results + 1] = {
+                        fm_key   = name,
+                        title    = plugin_actions[1].title,
+                        callback = plugin_actions[1].callback,
+                    }
+                else
+                    results[#results + 1] = {
+                        fm_key        = name,
+                        title         = "▸ " .. _pluginDisplayName(name) .. " Menu",
+                        has_submenu   = true,
+                        submenu_items = plugin_actions,
+                    }
+                end
+                goto continue
+            end
+        end
+
+        -- Fall back to method lookup for plugins that have no menu entries
+        -- but have a callable onShow/show/open/launch method.
         local method = _findPluginMethod(inst)
         if method then
             results[#results + 1] = {
