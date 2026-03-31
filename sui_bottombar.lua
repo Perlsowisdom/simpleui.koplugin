@@ -887,29 +887,47 @@ local function _executeInPlace(action_id, plugin, fm)
             local plugin_inst = fm and fm[cfg.plugin_key]
             _debug("plugin execution: looking for '", cfg.plugin_key, "' in fm ->", type(plugin_inst))
             if plugin_inst then
-                local methods_to_try = {}
-                if cfg.plugin_method and cfg.plugin_method ~= "" then
-                    _debug("plugin execution: using saved method '", cfg.plugin_method, "'")
-                    methods_to_try[#methods_to_try+1] = cfg.plugin_method
-                end
-                for _i, m in ipairs(Config.PLUGIN_ENTRY_METHODS) do
-                    methods_to_try[#methods_to_try+1] = m
-                end
-                local called = false
-                for _i, m in ipairs(methods_to_try) do
-                    if type(plugin_inst[m]) == "function" then
-                        _debug("plugin execution: calling method '", m, "'")
-                        local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
+                -- Handle __addtomainmenu__ sentinel: use the callback captured at save time
+                -- Handle __addtomainmenu__ sentinel: use the callback captured at save time
+                if cfg.plugin_method == "__addtomainmenu__" then
+                    local QA_mod = require("sui_quickactions")
+                    local cb = QA_mod and QA_mod._plugin_callbacks and QA_mod._plugin_callbacks[cfg.plugin_key]
+                    if type(cb) == "function" then
+                        local ok, err = pcall(cb)
                         if not ok then
-                            _debug("plugin execution: ERROR - ", tostring(err))
+                            _debug("plugin execution: __addtomainmenu__ callback error - ", tostring(err))
                             showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
                         end
-                        called = true; break
+                    else
+                        _debug("plugin execution: __addtomainmenu__ but no callback cached for '", cfg.plugin_key, "'")
+                        showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
                     end
-                end
-                if not called then
-                    _debug("plugin execution: no callable method found")
-                    showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
+                else
+                    -- Try saved method, then probe all known entry methods
+                    local called = false
+                    local methods_to_try = {}
+                    if cfg.plugin_method and cfg.plugin_method ~= "" then
+                        _debug("plugin execution: using saved method '", cfg.plugin_method, "'")
+                        methods_to_try[#methods_to_try+1] = cfg.plugin_method
+                    end
+                    for _i, m in ipairs(Config.PLUGIN_ENTRY_METHODS) do
+                        if not called then methods_to_try[#methods_to_try+1] = m end
+                    end
+                    for _i, m in ipairs(methods_to_try) do
+                        if type(plugin_inst[m]) == "function" then
+                            _debug("plugin execution: calling method '", m, "'")
+                            local ok, err = pcall(function() plugin_inst[m](plugin_inst) end)
+                            if not ok then
+                                _debug("plugin execution: ERROR - ", tostring(err))
+                                showUnavailable(string.format(_("Plugin error: %s"), tostring(err)))
+                            end
+                            called = true; break
+                        end
+                    end
+                    if not called then
+                        _debug("plugin execution: no callable method found")
+                        showUnavailable(string.format(_("Plugin not available: %s"), cfg.plugin_key))
+                    end
                 end
             else
                 _debug("plugin execution: plugin '", cfg.plugin_key, "' not found in fm")

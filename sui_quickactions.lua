@@ -500,7 +500,23 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                                 nil
                             )
                             QA._plugin_callbacks = QA._plugin_callbacks or {}
-                            QA._plugin_callbacks[_a.fm_key] = _a.callback
+                            if type(_a.callback) == "function" then
+                                QA._plugin_callbacks[_a.fm_key] = _a.callback
+                            elseif _a.method then
+                                -- Method-only non-FM plugin: no callback from addToMainMenu.
+                                -- Re-call commitQA to save the actual method name, not the
+                                -- __addtomainmenu__ sentinel that was stored before.
+                                local c = Config.getCustomQAConfig()
+                                -- Already saved by commitQA above, but patch the method.
+                                -- Re-save with the real method so execution uses the method path.
+                                local existing = Config.getCustomQAConfig()
+                                -- Find the QA id just saved (last in list)
+                                local list = Config.getCustomQAList()
+                                local qa_id = list[#list]
+                                local c2 = Config.getCustomQAConfig(qa_id)
+                                Config.saveCustomQAConfig(qa_id, c2.label, c2.path, c2.collection,
+                                    c2.icon, _a.fm_key, _a.method, c2.dispatcher_action)
+                            end
                         end,
                     })
                 end }}
@@ -545,7 +561,16 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                                 nil
                             )
                             QA._plugin_callbacks = QA._plugin_callbacks or {}
-                            QA._plugin_callbacks[_a.fm_key] = _a.callback
+                            if type(_a.callback) == "function" then
+                                QA._plugin_callbacks[_a.fm_key] = _a.callback
+                            elseif _a.method then
+                                -- Method-only non-FM plugin: patch saved config to use method
+                                local list = Config.getCustomQAList()
+                                local qa_id = list[#list]
+                                local c2 = Config.getCustomQAConfig(qa_id)
+                                Config.saveCustomQAConfig(qa_id, c2.label, c2.path, c2.collection,
+                                    c2.icon, _a.fm_key, _a.method, c2.dispatcher_action)
+                            end
                         end,
                     })
                 end }}
@@ -877,9 +902,11 @@ local function _getPluginList()
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
     if not fm then
-        logger.warn("[simpleui] _getPluginList: FM not ready yet")
-        _cached_plugin_list = {}
-        return _cached_plugin_list
+        -- Do NOT cache an empty result — FM may not be ready yet on first call
+        -- (e.g. boot menu or reader-only session). Return {} and let the next
+        -- call retry the FM lookup. See Issue 2 / Issue 3.
+        logger.warn("[simpleui] _getPluginList: FM not ready yet, returning uncached {}")
+        return {}
     end
     local fm_plugins = _scanFMPlugins()
     local fm_key_set = {}
