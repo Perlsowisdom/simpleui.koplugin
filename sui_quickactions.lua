@@ -466,6 +466,10 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
+        -- Always re-scan when opening the picker — FM is fully initialized
+        -- and registered_widgets is populated. Bypassing cache avoids stale
+        -- empty results from boot-time calls (Issue 5).
+        _cached_plugin_list = nil
         local plugins = QA._getPluginList()
 
         if #plugins == 0 then
@@ -897,8 +901,16 @@ function QA._getPluginList()
     local extra = QA._scanNonFMPlugins(fm_key_set)
     for _, p in ipairs(extra) do fm_plugins[#fm_plugins + 1] = p end
     table.sort(fm_plugins, function(a, b) return a.title:lower() < b.title:lower() end)
-    _cached_plugin_list = fm_plugins
-    logger.dbg("[simpleui] _getPluginList: found", #fm_plugins, "plugins")
+    -- Do NOT cache empty results — an empty list may indicate
+    -- registered_widgets was not yet populated at scan time (timing issue
+    -- when called early from the homescreen). Returning {} un-cached lets
+    -- the next call retry and potentially get a populated list.
+    if #fm_plugins > 0 then
+        _cached_plugin_list = fm_plugins
+        logger.dbg("[simpleui] _getPluginList: found", #fm_plugins, "plugins")
+    else
+        logger.dbg("[simpleui] _getPluginList: 0 plugins, not caching (retry on next call)")
+    end
     return fm_plugins
 end
 
@@ -1012,6 +1024,10 @@ function QA.showDispatcherPickerForTab(plugin, pos)
 end
 
 function QA.showPluginPickerForTab(plugin, pos)
+    -- Always re-scan when opening the picker — FM is fully initialized by
+    -- now and registered_widgets is populated. Skipping the cache avoids
+    -- stale empty results from early boot-time calls (Issue 5).
+    _cached_plugin_list = nil
     local plugins = QA._getPluginList()
 
     if #plugins == 0 then
