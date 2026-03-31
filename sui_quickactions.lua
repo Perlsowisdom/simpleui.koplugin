@@ -220,145 +220,6 @@ end
 -- Lazy scan: build plugin list on first use, not at boot time
 local _cached_plugin_list = nil
 
--- Shared menu capturer factory — defined at module level so both _scanFMPlugins and
--- _scanNonFMPlugins can use it without duplicating the closure.
-local function _makeMenuForPlugin(widget)
-    local menu_capturer = {
-        items = {},
-        add = function(self, item)
-            if type(item) == "table" then
-                self.items[#self.items + 1] = item
-            end
-        end,
-        registerItem = function(self, item)
-            return self:add(item)
-        end,
-    }
-    if type(widget) ~= "table" or type(widget.addToMainMenu) ~= "function" then return nil end
-    local ok, err = pcall(widget.addToMainMenu, widget, menu_capturer)
-    if not ok then
-        logger.warn("[simpleui] _scanPlugins: addToMainMenu error:", err)
-        return nil
-    end
-    return menu_capturer
-end
-
-local function _scanFMPlugins()
-    local fm = package.loaded["apps/filemanager/filemanager"]
-    fm = fm and fm.instance
-    if not fm or not fm.menu then
-        logger.dbg("[simpleui] _scanFMPlugins: FM or fm.menu not available")
-        return {}
-    end
-
-    local registered = fm.menu.registered_widgets
-    if type(registered) ~= "table" then
-        logger.dbg("[simpleui] _scanFMPlugins: registered_widgets not available")
-        return {}
-    end
-
-    -- Build a reverse map: instance → string key in fm (for saving to config).
-    -- FM stores each plugin under fm[plugin_module.name] (string key) via registerModule.
-    -- registerModule also sets instance.name = "filemanager" .. plugin_module.name,
-    -- so we strip the "filemanager" prefix to recover the original key.
-    local instance_to_key = {}
-    for k, v in pairs(fm) do
-        if type(k) == "string" and type(v) == "table" then
-            instance_to_key[v] = k
-        end
-    end
-
-    -- Widgets that SimpleUI already surfaces as built-in tab actions —
-    -- no need to show them again in the plugin picker.
-    local BUILTIN_SKIP = {
-        history = true, collections = true, filesearcher = true,
-        folder_shortcuts = true, dictionary = true, wikipedia = true,
-        bookinfo = true, menu = true, screenshot = true,
-        devicestatus = true, devicelistener = true, networklistener = true,
-        languagesupport = true, simpleui = true,
-    }
-
-    local results = {}
-    local seen_keys = {}
-
-    for _, widget in ipairs(registered) do
-        if type(widget) ~= "table" then goto continue end
-        local menu_capturer = _makeMenuForPlugin(widget)
-        if not menu_capturer then goto continue end
-
-        -- Recover the fm key for this widget instance.
-        local fm_key = instance_to_key[widget]
-        -- Fallback: strip "filemanager" prefix from widget.name
-        if not fm_key and type(widget.name) == "string" then
-            fm_key = widget.name:match("^filemanager(.+)$") or widget.name
-        end
-        if not fm_key then goto continue end
-        if BUILTIN_SKIP[fm_key] then goto continue end
-        if seen_keys[fm_key] then goto continue end
-        seen_keys[fm_key] = true
-
-        -- Collect all actionable entries from this plugin.
-        local plugin_actions = {}
-        for _, item in ipairs(menu_capturer.items) do
-            local title = item.text or item.title or ""
-            local cb    = item.callback
-            
-            -- Some entries use sub_item_table
-            if not cb and type(item.sub_item_table) == "table" then
-                for _, sub in ipairs(item.sub_item_table) do
-                    if type(sub) == "table" and type(sub.callback) == "function" then
-                        cb = sub.callback
-                        title = sub.text or sub.title or title
-                        break
-                    end
-                end
-            end
-            
-            if type(cb) == "function" and title ~= "" then
-                plugin_actions[#plugin_actions + 1] = {
-                    title = tostring(title),
-                    callback = cb,
-                }
-            end
-        end
-
-        if #plugin_actions == 0 then
-            logger.dbg("[simpleui] _scanFMPlugins: no actionable items for", fm_key)
-            goto continue
-        end
-
-        -- If multiple actions, show as grouped entry with submenu.
-        -- If single action, show directly.
-        local dedup = fm_key .. "|*"
-        local _key = fm_key
-        if #plugin_actions == 1 then
-            results[#results + 1] = {
-                fm_key   = _key,
-                title    = plugin_actions[1].title,
-                callback = plugin_actions[1].callback,
-            }
-        else
-            -- Multiple actions - show "Open X Menu" with submenu
-            results[#results + 1] = {
-                fm_key        = _key,
-                title         = "▸ " .. _pluginDisplayName(fm_key) .. " Menu",
-                has_submenu   = true,
-                submenu_items = plugin_actions,
-            }
-            logger.dbg("[simpleui] _scanFMPlugins:", fm_key, "has", #plugin_actions, "menu items")
-        end
-
-        seen_keys[fm_key] = true
-        ::continue::
-    end
-
-    table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
-    for _, p in ipairs(results) do
-        logger.dbg("[simpleui] _scanFMPlugins: found plugin:", p.fm_key, "method:", p.method, "title:", p.title)
-    end
-    logger.dbg("[simpleui] _scanFMPlugins: total", #results, "plugin actions found")
-    return results
-end
 
 -- ---------------------------------------------------------------------------
 -- Create / Edit dialog
@@ -884,34 +745,127 @@ end
 -- spec.on_save(inputs)
 -- spec.icon_default_label
 -- spec.title (optional)
+-- Builtins to skip in plugin picker (already surfaced as built-in tabs).
+local _BUILTIN_SKIP = {
+    history = true, collections = true, filesearcher = true,
+    folder_shortcuts = true, dictionary = true, wikipedia = true,
+    bookinfo = true, menu = true, screenshot = true,
+    devicestatus = true, devicelistener = true, networklistener = true,
+    languagesupport = true, simpleui = true,
+}
+
+-- Tries to get a callable entry-point callback from a plugin instance.
+-- 1. addToMainMenu capturer (harvests first available callback)
+-- 2. Direct method probing via _PROBE_METHODS
+-- 3. Pattern fallback (onShow / onOpen / onLaunch)
+-- Returns (callback, display_title, method_name).
+local function _getPluginCallback(inst, fm_key)
+    -- Method 1: rebuild the plugin's addToMainMenu menu and grab first callback
+    if type(inst.addToMainMenu) == "function" then
+        local mc = {
+            items = {},
+            add = function(self, item)
+                if item then self.items[#self.items + 1] = item end
+            end,
+            registerItem = function(self, item) return self:add(item) end,
+        }
+        pcall(inst.addToMainMenu, inst, mc)
+        for _, item in ipairs(mc.items) do
+            local cb = item.callback
+            if not cb and type(item.sub_item_table) == "table" then
+                for _, sub in ipairs(item.sub_item_table) do
+                    if type(sub) == "table" and type(sub.callback) == "function" then
+                        cb = sub.callback; break
+                    end
+                end
+            end
+            if type(cb) == "function" then
+                local title = item.text or item.title or _pluginDisplayName(fm_key)
+                return cb, title, nil
+            end
+        end
+    end
+    -- Method 2: direct method probing
+    for _, method in ipairs(_PROBE_METHODS) do
+        if type(inst[method]) == "function" then
+            return inst[method], _pluginDisplayName(fm_key), method
+        end
+    end
+    -- Method 3: pattern fallback
+    for k, v in pairs(inst) do
+        if type(k) == "string" and type(v) == "function" then
+            if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
+                return v, _pluginDisplayName(fm_key), k
+            end
+        end
+    end
+    return nil, nil, nil
+end
+
+-- Unified plugin scanner: directly probes all loaded plugin instances
+-- from both FM registration and PluginLoader._loaded.
+-- Replaces the old _scanFMPlugins + _scanNonFMPlugins approach.
 function QA._getPluginList()
     if _cached_plugin_list ~= nil then return _cached_plugin_list end
+
+    local results = {}
+    local seen_keys = {}
+    local loaded_list = nil
+
+    local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    if ok_pl and PluginLoader then
+        loaded_list = PluginLoader._loaded
+    end
+
+    local function addPlugin(name, inst)
+        if type(name) ~= "string" or name == "" or name == "simpleui" then return end
+        if _BUILTIN_SKIP[name] then return end
+        if seen_keys[name] then return end
+        if type(inst) ~= "table" then return end
+        seen_keys[name] = true
+
+        local cb, title = _getPluginCallback(inst, name)
+        if not cb then
+            logger.dbg("[simpleui] _getPluginList: no callback for", name)
+            return
+        end
+        results[#results + 1] = {
+            fm_key   = name,
+            title    = title,
+            callback = cb,
+        }
+        logger.dbg("[simpleui] _getPluginList: found plugin:", name)
+    end
+
+    -- Collect from FM instance (covers all FM-registered plugins)
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
-    if not fm then
-        -- Do NOT cache an empty result — FM may not be ready yet on first call
-        -- (e.g. boot menu or reader-only session). Return {} and let the next
-        -- call retry the FM lookup. See Issue 2 / Issue 3.
-        logger.warn("[simpleui] _getPluginList: FM not ready yet, returning uncached {}")
-        return {}
+    if fm then
+        for k, v in pairs(fm) do
+            if type(k) == "string" and type(v) == "table" then
+                addPlugin(k, v)
+            end
+        end
     end
-    local fm_plugins = _scanFMPlugins()
-    local fm_key_set = {}
-    for _, p in ipairs(fm_plugins) do fm_key_set[p.fm_key] = true end
-    local extra = QA._scanNonFMPlugins(fm_key_set)
-    for _, p in ipairs(extra) do fm_plugins[#fm_plugins + 1] = p end
-    table.sort(fm_plugins, function(a, b) return a.title:lower() < b.title:lower() end)
-    -- Do NOT cache empty results — an empty list may indicate
-    -- registered_widgets was not yet populated at scan time (timing issue
-    -- when called early from the homescreen). Returning {} un-cached lets
-    -- the next call retry and potentially get a populated list.
-    if #fm_plugins > 0 then
-        _cached_plugin_list = fm_plugins
-        logger.dbg("[simpleui] _getPluginList: found", #fm_plugins, "plugins")
+
+    -- Collect from PluginLoader (covers reader-only and standalone plugins)
+    if type(loaded_list) == "table" then
+        for _, entry in ipairs(loaded_list) do
+            if type(entry) == "table" and type(entry.name) == "string" then
+                addPlugin(entry.name, entry.instance)
+            end
+        end
+    end
+
+    -- Only cache non-empty results to handle the FM-not-ready-at-boot case
+    if #results > 0 then
+        table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
+        _cached_plugin_list = results
+        logger.dbg("[simpleui] _getPluginList: found", #results, "plugins")
     else
         logger.dbg("[simpleui] _getPluginList: 0 plugins, not caching (retry on next call)")
     end
-    return fm_plugins
+    return results
 end
 
 
@@ -1114,84 +1068,6 @@ end
 
 -- Scans PluginLoader._loaded for plugins that are loaded but not registered in FM
 -- (e.g. reader-only plugins that don't add to main menu).
-function QA._scanNonFMPlugins(fm_known_keys)
-    local ok_pl, PluginLoader = pcall(require, "pluginloader")
-    if not ok_pl or not PluginLoader then return {} end
-    local loaded_list = PluginLoader._loaded
-    if type(loaded_list) ~= "table" then return {} end
-
-    local results = {}
-    local seen_keys = {}
-
-    for _, entry in ipairs(loaded_list) do
-        if type(entry) ~= "table" then goto continue end
-        local name = entry.name
-        local inst = entry.instance
-        if type(name) ~= "string" or name == "" or name == "simpleui" then goto continue end
-        if fm_known_keys[name] then goto continue end
-        if seen_keys[name] then goto continue end
-        seen_keys[name] = true
-        if type(inst) ~= "table" then goto continue end
-
-        -- First try to harvest menu entries via addToMainMenu (same approach as FM).
-        local menu_capturer = _makeMenuForPlugin(inst)
-        if menu_capturer and #menu_capturer.items > 0 then
-            -- Collect all actionable entries from this plugin.
-            local plugin_actions = {}
-            for _, item in ipairs(menu_capturer.items) do
-                local title = item.text or item.title or ""
-                local cb    = item.callback
-                if not cb and type(item.sub_item_table) == "table" then
-                    for _, sub in ipairs(item.sub_item_table) do
-                        if type(sub) == "table" and type(sub.callback) == "function" then
-                            cb = sub.callback
-                            title = sub.text or sub.title or title
-                            break
-                        end
-                    end
-                end
-                if type(cb) == "function" and title ~= "" then
-                    plugin_actions[#plugin_actions + 1] = {
-                        title = tostring(title),
-                        callback = cb,
-                    }
-                end
-            end
-
-            if #plugin_actions > 0 then
-                if #plugin_actions == 1 then
-                    results[#results + 1] = {
-                        fm_key   = name,
-                        title    = plugin_actions[1].title,
-                        callback = plugin_actions[1].callback,
-                    }
-                else
-                    results[#results + 1] = {
-                        fm_key        = name,
-                        title         = "▸ " .. _pluginDisplayName(name) .. " Menu",
-                        has_submenu   = true,
-                        submenu_items = plugin_actions,
-                    }
-                end
-                goto continue
-            end
-        end
-
-        -- Fall back to method lookup for plugins that have no menu entries
-        -- but have a callable onShow/show/open/launch method.
-        local method = _findPluginMethod(inst)
-        if method then
-            results[#results + 1] = {
-                fm_key = name,
-                method = method,
-                title  = _pluginDisplayName(name),
-            }
-        end
-        ::continue::
-    end
-    return results
-end
-
 -- Scans Dispatcher for available system actions
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
@@ -1226,31 +1102,6 @@ local function _scanDispatcherActions()
     end
     table.sort(results, function(a, b) return a.title < b.title end)
     return results
-end
-
--- Probe methods tried in order on plugin instances
-local _PROBE_METHODS = {
-    "onShow", "show", "open", "launch", "onOpen",
-    "onShowHist", "onShowBookInfo", "onShowColl", "onShowCollList",
-    "onShowFileSearch", "onShowFolderShortcutsDialog",
-    "onShowDictionaryLookup", "onShowWikipediaLookup",
-}
-
--- Finds the first callable entry-point method on a plugin instance
-local function _findPluginMethod(inst)
-    if type(inst) ~= "table" then return nil end
-    for _, m in ipairs(_PROBE_METHODS) do
-        if type(inst[m]) == "function" then return m end
-    end
-    -- Pattern fallback
-    for k, v in pairs(inst) do
-        if type(k) == "string" and type(v) == "function" then
-            if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
-                return k
-            end
-        end
-    end
-    return nil
 end
 
 -- Builds a human-readable display name from a raw plugin name
