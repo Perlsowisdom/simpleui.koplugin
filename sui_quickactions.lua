@@ -466,7 +466,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
-        local plugins = _getPluginList()
+        local plugins = QA._getPluginList()
 
         if #plugins == 0 then
             UIManager:show(InfoMessage:new{
@@ -880,7 +880,7 @@ end
 -- spec.on_save(inputs)
 -- spec.icon_default_label
 -- spec.title (optional)
-local function _getPluginList()
+function QA._getPluginList()
     if _cached_plugin_list ~= nil then return _cached_plugin_list end
     local fm = package.loaded["apps/filemanager/filemanager"]
     fm = fm and fm.instance
@@ -1012,7 +1012,7 @@ function QA.showDispatcherPickerForTab(plugin, pos)
 end
 
 function QA.showPluginPickerForTab(plugin, pos)
-    local plugins = _getPluginList()
+    local plugins = QA._getPluginList()
 
     if #plugins == 0 then
         local UIManager_ = require("ui/uimanager")
