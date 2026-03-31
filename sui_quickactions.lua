@@ -466,7 +466,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
-        local plugins = _getPluginList()
+        local plugins = QA._getPluginList()
 
         if #plugins == 0 then
             UIManager:show(InfoMessage:new{
@@ -1012,7 +1012,7 @@ function QA.showDispatcherPickerForTab(plugin, pos)
 end
 
 function QA.showPluginPickerForTab(plugin, pos)
-    local plugins = _getPluginList()
+    local plugins = QA._getPluginList()
 
     if #plugins == 0 then
         local UIManager_ = require("ui/uimanager")
