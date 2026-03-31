@@ -1020,10 +1020,15 @@ function QA.showPluginPickerForTab(plugin, pos)
         local list  = Config.getCustomQAList()
         list[#list + 1] = qa_id
         Config.saveCustomQAList(list)
+        -- For method-only plugins (no harvested callback), cache a callable
+        -- that invokes the saved method name at runtime via navigate()'s
+        -- plugin_method dispatch path.
+        if a.callback then
+            QA._plugin_callbacks = QA._plugin_callbacks or {}
+            QA._plugin_callbacks[a.fm_key] = a.callback
+        end
         Config.saveCustomQAConfig(qa_id, a.title, nil, nil,
-            Config.CUSTOM_PLUGIN_ICON, a.fm_key, "__addtomainmenu__", nil)
-        QA._plugin_callbacks = QA._plugin_callbacks or {}
-        QA._plugin_callbacks[a.fm_key] = a.callback
+            Config.CUSTOM_PLUGIN_ICON, a.fm_key, a.method or "__addtomainmenu__", nil)
         QA.invalidateCustomQACache()
         local tabs = Config.loadTabConfig()
         local old_id = tabs[pos]
@@ -1150,10 +1155,18 @@ local function _scanNonFMPlugins(fm_known_keys)
         -- but have a callable onShow/show/open/launch method.
         local method = _findPluginMethod(inst)
         if method then
+            -- Cache a callable that invokes the discovered method at runtime.
+            -- This mirrors the callback-harvesting path above and allows
+            -- navigate() to execute the method without a separate lookup.
             results[#results + 1] = {
-                fm_key = name,
-                method = method,
-                title  = _pluginDisplayName(name),
+                fm_key   = name,
+                method   = method,
+                title    = _pluginDisplayName(name),
+                callback = function()
+                    local fm_key_for_cb = name
+                    local inst_for_cb   = inst
+                    pcall(function() inst_for_cb[method](inst_for_cb) end)
+                end,
             }
         end
         ::continue::
