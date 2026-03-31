@@ -888,7 +888,6 @@ local function _executeInPlace(action_id, plugin, fm)
             _debug("plugin execution: looking for '", cfg.plugin_key, "' in fm ->", type(plugin_inst))
             if plugin_inst then
                 -- Handle __addtomainmenu__ sentinel: use the callback captured at save time
-                -- Handle __addtomainmenu__ sentinel: use the callback captured at save time
                 if cfg.plugin_method == "__addtomainmenu__" then
                     local QA_mod = require("sui_quickactions")
                     local cb = QA_mod and QA_mod._plugin_callbacks and QA_mod._plugin_callbacks[cfg.plugin_key]

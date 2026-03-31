@@ -491,32 +491,21 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                         } },
                         icon_default_label = _("Default (Plugin)"),
                         on_save = function(inputs)
-                            commitQA(
-                                sanitize(inputs[1]) or _a.title,
-                                nil, nil,
-                                Config.CUSTOM_PLUGIN_ICON,
-                                _a.fm_key,
-                                "__addtomainmenu__",
-                                nil
-                            )
-                            QA._plugin_callbacks = QA._plugin_callbacks or {}
-                            if type(_a.callback) == "function" then
+                            local qa_id = Config.nextCustomQAId()
+                            local list = Config.getCustomQAList()
+                            list[#list + 1] = qa_id
+                            Config.saveCustomQAList(list)
+                            -- Use __addtomainmenu__ sentinel when we have a harvested callback;
+                            -- otherwise save the actual method name for the dispatcher's method path.
+                            local method = (_a.callback and "__addtomainmenu__") or (_a.method or "__addtomainmenu__")
+                            Config.saveCustomQAConfig(qa_id, sanitize(inputs[1]) or _a.title,
+                                nil, nil, Config.CUSTOM_PLUGIN_ICON, _a.fm_key, method, nil)
+                            if _a.callback then
+                                QA._plugin_callbacks = QA._plugin_callbacks or {}
                                 QA._plugin_callbacks[_a.fm_key] = _a.callback
-                            elseif _a.method then
-                                -- Method-only non-FM plugin: no callback from addToMainMenu.
-                                -- Re-call commitQA to save the actual method name, not the
-                                -- __addtomainmenu__ sentinel that was stored before.
-                                local c = Config.getCustomQAConfig()
-                                -- Already saved by commitQA above, but patch the method.
-                                -- Re-save with the real method so execution uses the method path.
-                                local existing = Config.getCustomQAConfig()
-                                -- Find the QA id just saved (last in list)
-                                local list = Config.getCustomQAList()
-                                local qa_id = list[#list]
-                                local c2 = Config.getCustomQAConfig(qa_id)
-                                Config.saveCustomQAConfig(qa_id, c2.label, c2.path, c2.collection,
-                                    c2.icon, _a.fm_key, _a.method, c2.dispatcher_action)
                             end
+                            QA.invalidateCustomQACache()
+                            plugin:_scheduleRebuild()
                         end,
                     })
                 end }}
@@ -552,25 +541,19 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                         } },
                         icon_default_label = _("Default (Plugin)"),
                         on_save = function(inputs)
-                            commitQA(
-                                sanitize(inputs[1]) or _a.title,
-                                nil, nil,
-                                Config.CUSTOM_PLUGIN_ICON,
-                                _a.fm_key,
-                                "__addtomainmenu__",
-                                nil
-                            )
-                            QA._plugin_callbacks = QA._plugin_callbacks or {}
-                            if type(_a.callback) == "function" then
+                            local qa_id = Config.nextCustomQAId()
+                            local list = Config.getCustomQAList()
+                            list[#list + 1] = qa_id
+                            Config.saveCustomQAList(list)
+                            local method = (_a.callback and "__addtomainmenu__") or (_a.method or "__addtomainmenu__")
+                            Config.saveCustomQAConfig(qa_id, sanitize(inputs[1]) or _a.title,
+                                nil, nil, Config.CUSTOM_PLUGIN_ICON, _a.fm_key, method, nil)
+                            if _a.callback then
+                                QA._plugin_callbacks = QA._plugin_callbacks or {}
                                 QA._plugin_callbacks[_a.fm_key] = _a.callback
-                            elseif _a.method then
-                                -- Method-only non-FM plugin: patch saved config to use method
-                                local list = Config.getCustomQAList()
-                                local qa_id = list[#list]
-                                local c2 = Config.getCustomQAConfig(qa_id)
-                                Config.saveCustomQAConfig(qa_id, c2.label, c2.path, c2.collection,
-                                    c2.icon, _a.fm_key, _a.method, c2.dispatcher_action)
                             end
+                            QA.invalidateCustomQACache()
+                            plugin:_scheduleRebuild()
                         end,
                     })
                 end }}
@@ -1182,19 +1165,10 @@ local function _scanNonFMPlugins(fm_known_keys)
         -- but have a callable onShow/show/open/launch method.
         local method = _findPluginMethod(inst)
         if method then
-            -- Shadow loop variables in an IIFE so each closure captures its own
-            -- values, not the final iteration's values (Lua closures capture
-            -- upvalues by reference, not by value).
-            local _name   = name
-            local _inst   = inst
-            local _method = method
             results[#results + 1] = {
-                fm_key   = _name,
-                method   = _method,
-                title    = _pluginDisplayName(_name),
-                callback = function()
-                    pcall(function() _inst[_method](_inst) end)
-                end,
+                fm_key = name,
+                method = method,
+                title  = _pluginDisplayName(name),
             }
         end
         ::continue::
