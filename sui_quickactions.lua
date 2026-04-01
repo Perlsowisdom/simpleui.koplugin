@@ -19,6 +19,15 @@ local _         = require("gettext")
 
 local Config    = require("sui_config")
 
+
+local function _pluginDisplayName(raw)
+    raw = (raw or "")
+        :gsub("%.koplugin$", "")
+        :gsub("^filemanager", "")
+        :gsub("[_%-]", " ")
+        :match("^%s*(.-)%s*$")
+    if raw == "" then return "?" end
+
 local QA = {}
 
 -- ---------------------------------------------------------------------------
@@ -1110,15 +1119,9 @@ local function _scanDispatcherActions()
 end
 
 -- Builds a human-readable display name from a raw plugin name
-local function _pluginDisplayName(raw)
-    raw = (raw or "")
-        :gsub("%.koplugin$", "")
-        :gsub("^filemanager", "")
-        :gsub("[_%-]", " ")
-        :match("^%s*(.-)%s*$")
-    if raw == "" then return "?" end
     return raw:sub(1,1):upper() .. raw:sub(2)
 end
 
 
 return QA
+
