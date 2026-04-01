@@ -786,7 +786,12 @@ local function _getPluginCallback(inst, fm_key)
         end
     end
     -- Method 2: direct method probing
-    for _, method in ipairs(_PROBE_METHODS) do
+    for _, method in ipairs({
+        "onShow", "show", "open", "launch", "onOpen",
+        "onShowHist", "onShowBookInfo", "onShowColl", "onShowCollList",
+        "onShowFileSearch", "onShowFolderShortcutsDialog",
+        "onShowDictionaryLookup", "onShowWikipediaLookup",
+    }) do
         if type(inst[method]) == "function" then
             return inst[method], _pluginDisplayName(fm_key), method
         end
