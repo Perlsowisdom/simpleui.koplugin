@@ -488,6 +488,7 @@ function M.reset() invalidateStatsCache() end
 
 -- Builds the widget. Branches on layout mode: compact (single inline row) or default (two lines).
 function M.build(w, ctx)
+    Config.applyLabelToggle(M, _("Reading Goals"))
     local show_ann = showAnnual()
     local show_day = showDaily()
     if not show_ann and not show_day then return nil end
@@ -597,6 +598,7 @@ function M.getMenuItems(ctx_menu)
     local scale_item = _makeScaleItem(ctx_menu)
     scale_item.separator = true
     return {
+        Config.makeLabelToggleItem("reading_goals", _("Reading Goals"), refresh, _lc),
         { text = _lc("Type"),
           sub_item_table = {
               { text         = _lc("Default"),
