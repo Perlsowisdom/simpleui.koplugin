@@ -27,6 +27,7 @@ local function _pluginDisplayName(raw)
         :gsub("[_%-]", " ")
         :match("^%s*(.-)%s*$")
     if raw == "" then return "?" end
+end
 
 local QA = {}
 
@@ -1118,9 +1119,6 @@ local function _scanDispatcherActions()
     return results
 end
 
--- Builds a human-readable display name from a raw plugin name
-    return raw:sub(1,1):upper() .. raw:sub(2)
-end
 
 
 return QA
