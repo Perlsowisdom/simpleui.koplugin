@@ -449,6 +449,10 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
 
     local function openDispatcherPicker(plugin)
+        if not plugin then
+            local SimpleUI = require("simpleui")
+            plugin = SimpleUI
+        end
         local actions = _scanDispatcherActions()
         if #actions == 0 then
             UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
