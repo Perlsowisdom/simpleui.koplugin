@@ -359,11 +359,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                     UIManager:close(plugin._qa_plugin_sub_picker)
                     UIManager:close(parent_plugin and parent_plugin._qa_plugin_picker or parent_picker)
                     _buildSaveDialog({
-                        fields = { {
-                            description = _("Name"),
-                            text        = cfg.label or _a.title,
-                            hint        = _("e.g. Rakuyomi…"),
-                        } },
+                        fields = { { description = _("Name"), text = cfg.label or _a.title, hint = _("e.g. Rakuyomi…") } },
                         icon_default_label = _("Default (Plugin)"),
                         on_save = function(inputs)
                             local qa_id = Config.nextCustomQAId()
@@ -402,6 +398,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             if _a.has_submenu and _a.submenu_items then
                 -- Grouped plugin: show a submenu of available actions
                 buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                    UIManager:close(plugin._qa_plugin_picker)
                     showPluginSubmenu(_a.submenu_items, plugin._qa_plugin_picker, _a.title, plugin)
                 end }}
             else
@@ -409,17 +406,15 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
                 buttons[#buttons + 1] = {{ text = _a.title, callback = function()
                     UIManager:close(plugin._qa_plugin_picker)
                     _buildSaveDialog({
-                        fields = { {
-                            description = _("Name"),
-                            text        = cfg.label or _a.title,
-                            hint        = _("e.g. Rakuyomi…"),
-                        } },
+                        fields = { { description = _("Name"), text = cfg.label or _a.title, hint = _("e.g. Rakuyomi…") } },
                         icon_default_label = _("Default (Plugin)"),
                         on_save = function(inputs)
                             local qa_id = Config.nextCustomQAId()
                             local list = Config.getCustomQAList()
                             list[#list + 1] = qa_id
                             Config.saveCustomQAList(list)
+                            -- Use __addtomainmenu__ sentinel when we have a harvested callback;
+                            -- otherwise save the actual method name for the dispatcher's method path.
                             local method = (_a.callback and "__addtomainmenu__") or (_a.method or "__addtomainmenu__")
                             Config.saveCustomQAConfig(qa_id, sanitize(inputs[1]) or _a.title,
                                 nil, nil, Config.CUSTOM_PLUGIN_ICON, _a.fm_key, method, nil)
@@ -1065,6 +1060,7 @@ function QA.showPluginPickerForTab(plugin, pos)
         local _a = a
         if _a.has_submenu and _a.submenu_items then
             buttons[#buttons + 1] = {{ text = _a.title, callback = function()
+                UIManager_:close(plugin._qa_tab_plugin_picker)
                 showTabPluginSubmenu(_a.submenu_items, _a.title)
             end }}
         else
