@@ -817,19 +817,20 @@ local function _getPluginCallback(inst, fm_key)
 end
 
 -- Unified plugin scanner: directly probes all loaded plugin instances
--- from both FM registration and PluginLoader._loaded.
+-- from both FM registration and PluginLoader (enabled_plugins + loaded_plugins).
 -- Replaces the old _scanFMPlugins + _scanNonFMPlugins approach.
 function QA._getPluginList()
     if _cached_plugin_list ~= nil then return _cached_plugin_list end
 
     local results = {}
     local seen_keys = {}
-    local loaded_list = nil
 
+    -- KOReader's pluginloader stores:
+    --   .enabled_plugins = { { name="plugname", path="/path/to/plug.koplugin" }, ... }  -- raw modules
+    --   .loaded_plugins = { plugname = instance, ... }                                   -- instantiated
     local ok_pl, PluginLoader = pcall(require, "pluginloader")
-    if ok_pl and PluginLoader then
-        loaded_list = PluginLoader._loaded
-    end
+    local enabled_plugins = ok_pl and PluginLoader and PluginLoader.enabled_plugins
+    local loaded_plugins  = ok_pl and PluginLoader and PluginLoader.loaded_plugins
 
     local function addPlugin(name, inst)
         if type(name) ~= "string" or name == "" or name == "simpleui" then return end
@@ -862,11 +863,15 @@ function QA._getPluginList()
         end
     end
 
-    -- Collect from PluginLoader (covers reader-only and standalone plugins)
-    if type(loaded_list) == "table" then
-        for _, entry in ipairs(loaded_list) do
+    -- Collect from PluginLoader enabled_plugins (raw modules, no instance yet)
+    -- and loaded_plugins (instantiated instances keyed by plugin name).
+    if type(enabled_plugins) == "table" then
+        for _, entry in ipairs(enabled_plugins) do
             if type(entry) == "table" and type(entry.name) == "string" then
-                addPlugin(entry.name, entry.instance)
+                -- Prefer the instantiated instance if available; fall back to the module itself
+                local inst = (type(loaded_plugins) == "table" and loaded_plugins[entry.name])
+                          or entry
+                addPlugin(entry.name, inst)
             end
         end
     end
@@ -1081,8 +1086,6 @@ function QA.showPluginPickerForTab(plugin, pos)
 end
 
 
--- Scans PluginLoader._loaded for plugins that are loaded but not registered in FM
--- (e.g. reader-only plugins that don't add to main menu).
 -- Scans Dispatcher for available system actions
 local function _scanDispatcherActions()
     local ok_d, Dispatcher = pcall(require, "dispatcher")
