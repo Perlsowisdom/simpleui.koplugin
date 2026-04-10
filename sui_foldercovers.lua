@@ -82,6 +82,8 @@ local SK = {
     -- Subfolder / bookless-folder covers
     subfolder_cover  = "simpleui_fc_subfolder_cover",
     recursive_cover  = "simpleui_fc_recursive_cover",
+    -- Folder name text scale (integer %, default 100)
+    label_scale      = "simpleui_fc_label_scale",
 }
 
 local M = {}
@@ -145,6 +147,36 @@ function M.getLabelMode()
     return G_reader_settings:readSetting(SK.label_mode) or "overlay"
 end
 function M.setLabelMode(v) G_reader_settings:saveSetting(SK.label_mode, v) end
+
+-- Folder name text scale: integer % stored in SK.label_scale, default 100.
+-- Returns a float multiplier (e.g. 1.0, 1.2) for use in _buildLabel.
+local _FC_SCALE_MIN = 50
+local _FC_SCALE_MAX = 200
+local _FC_SCALE_DEF = 100
+local _FC_SCALE_STEP = 10
+M.FC_LABEL_SCALE_MIN  = _FC_SCALE_MIN
+M.FC_LABEL_SCALE_MAX  = _FC_SCALE_MAX
+M.FC_LABEL_SCALE_DEF  = _FC_SCALE_DEF
+M.FC_LABEL_SCALE_STEP = _FC_SCALE_STEP
+
+local function _clampFCScale(n)
+    return math.max(_FC_SCALE_MIN, math.min(_FC_SCALE_MAX, math.floor(n)))
+end
+
+function M.getLabelScalePct()
+    local v = G_reader_settings:readSetting(SK.label_scale)
+    local n = tonumber(v)
+    if not n then return _FC_SCALE_DEF end
+    return _clampFCScale(n)
+end
+
+function M.getLabelScale()
+    return M.getLabelScalePct() / 100
+end
+
+function M.setLabelScale(pct)
+    G_reader_settings:saveSetting(SK.label_scale, _clampFCScale(pct))
+end
 
 -- Pages badge getter / setter (default true)
 function M.getOverlayPages() return G_reader_settings:readSetting(SK.overlay_pages) ~= false end
@@ -264,7 +296,7 @@ local function _buildLabel(item, available_w, size, border, cv_scale)
     if M.getLabelMode() ~= "overlay" then return nil end
     if not M.getShowName() then return nil end
 
-    local dir_max_fs = math.max(8, math.floor(_BASE_DIR_FS * cv_scale))
+    local dir_max_fs = math.max(8, math.floor(_BASE_DIR_FS * cv_scale * M.getLabelScale()))
     local directory  = item:_getFolderNameWidget(available_w, dir_max_fs)
     local img_only   = Geom:new{ w = size.w, h = size.h }
     local img_dimen  = Geom:new{ w = size.w + border * 2, h = size.h + border * 2 }

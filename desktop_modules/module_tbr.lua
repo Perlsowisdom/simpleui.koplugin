@@ -1,13 +1,18 @@
 -- module_tbr.lua — Simple UI
 -- Module: To Be Read (TBR).
 -- Shows up to 5 books marked by the user as "to be read".
--- The TBR list is stored in G_reader_settings["sui_tbr_list"] as
--- an ordered array of filepaths: { fp1, fp2, ... } (max. 5).
+--
+-- Persistence: the TBR list is mirrored as a KOReader collection named
+-- TBR_COLL_NAME ("To Be Read").  ReadCollection is the source of truth;
+-- G_reader_settings["sui_tbr_list"] is kept in sync as a legacy fallback
+-- and for modules that read it directly.  On first run the old
+-- G_reader_settings list is migrated into the collection automatically.
 --
 -- Entry points for marking books:
 --   • Hold on a book in the Library (single-file dialog)  → via main.lua
 --
 -- Public API used by main.lua / sui_patches.lua:
+--   M.TBR_COLL_NAME                                      → string
 --   M.getTBRList()                                       → { fp, ... }
 --   M.getTBRCount()                                      → number
 --   M.isTBR(filepath)                                    → bool
@@ -41,17 +46,76 @@ local Config = require("sui_config")
 local UI     = require("sui_core")
 local PAD    = UI.PAD
 
-local TBR_MAX     = 5
-local TBR_SETTING = "sui_tbr_list"  -- ordered array of filepaths
+local TBR_MAX       = 5
+local TBR_SETTING   = "sui_tbr_list"    -- G_reader_settings key (kept in sync)
+local TBR_COLL_NAME = "To Be Read"      -- KOReader collection name for the TBR list
 
 -- ---------------------------------------------------------------------------
--- Persistence
+-- ReadCollection accessor (lazy — RC singleton may not exist at require time)
 -- ---------------------------------------------------------------------------
 
+local function getRC()
+    local ok, rc = pcall(require, "readcollection")
+    return ok and rc or nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Migration: promote old G_reader_settings list into ReadCollection.
+-- Called once at module load.  No-ops if collection already has entries.
+-- ---------------------------------------------------------------------------
+
+local function _migrate()
+    local RC = getRC()
+    if not RC then return end
+    RC:_read()
+    if not RC.coll[TBR_COLL_NAME] then
+        RC:addCollection(TBR_COLL_NAME)
+    end
+    -- If already populated, nothing to migrate.
+    if next(RC.coll[TBR_COLL_NAME]) then return end
+    local raw = G_reader_settings:readSetting(TBR_SETTING)
+    if type(raw) ~= "table" or #raw == 0 then return end
+    local added = 0
+    for _, fp in ipairs(raw) do
+        if type(fp) == "string" and lfs.attributes(fp, "mode") == "file" then
+            RC:addItem(fp, TBR_COLL_NAME)
+            added = added + 1
+        end
+    end
+    if added > 0 then
+        RC:write({ [TBR_COLL_NAME] = true })
+        logger.dbg("simpleui: module_tbr: migrated", added, "entries to ReadCollection")
+    end
+end
+
+pcall(_migrate)
+
+-- ---------------------------------------------------------------------------
+-- Internal helpers — read/write RC directly, never through the hooked methods
+-- so there is no re-entrancy between addTBR/removeTBR and the sui_patches hooks.
+-- ---------------------------------------------------------------------------
+
+-- Returns an ordered array of filepaths from RC (or G_reader_settings fallback).
 local function getTBRList()
+    local RC = getRC()
+    if RC then
+        RC:_read()
+        local coll = RC.coll[TBR_COLL_NAME]
+        if not coll then return {} end
+        local items = {}
+        for _, item in pairs(coll) do
+            if lfs.attributes(item.file, "mode") == "file" then
+                items[#items + 1] = item
+            end
+        end
+        table.sort(items, function(a, b) return (a.order or 0) < (b.order or 0) end)
+        local fps = {}
+        for _, item in ipairs(items) do fps[#fps + 1] = item.file end
+        return fps
+    end
+    -- Fallback
     local raw = G_reader_settings:readSetting(TBR_SETTING)
     if type(raw) ~= "table" then return {} end
-    -- Filter out entries whose files no longer exist on disk.
     local clean = {}
     for _, fp in ipairs(raw) do
         if type(fp) == "string" and lfs.attributes(fp, "mode") == "file" then
@@ -61,7 +125,8 @@ local function getTBRList()
     return clean
 end
 
-local function saveTBRList(list)
+-- Sync the canonical list into G_reader_settings for other modules.
+local function _syncSettings(list)
     G_reader_settings:saveSetting(TBR_SETTING, list)
 end
 
@@ -69,7 +134,18 @@ local function getTBRCount()
     return #getTBRList()
 end
 
+-- Resolve realpath once and check RC membership directly (no RC:_read call).
 local function isTBR(filepath)
+    local RC = getRC()
+    if RC then
+        RC:_read()
+        local coll = RC.coll[TBR_COLL_NAME]
+        if not coll then return false end
+        local ok_fu, ffiUtil = pcall(require, "ffi/util")
+        local real = ok_fu and ffiUtil.realpath(filepath) or filepath
+        return (real and coll[real] ~= nil) or coll[filepath] ~= nil
+    end
+    -- Fallback
     for _, fp in ipairs(getTBRList()) do
         if fp == filepath then return true end
     end
@@ -77,25 +153,70 @@ local function isTBR(filepath)
 end
 
 --- Adds a book to the TBR list.
---- Returns true on success, false if the list already has TBR_MAX entries.
+--- Writes directly to RC internals (bypassing the hooked RC.addItem) to avoid
+--- re-entrancy; then syncs G_reader_settings.
+--- Returns true on success, false if already at TBR_MAX.
 local function addTBR(filepath)
+    if isTBR(filepath) then return true end
     local list = getTBRList()
-    for _, fp in ipairs(list) do
-        if fp == filepath then return true end  -- already present
-    end
     if #list >= TBR_MAX then return false end
-    list[#list + 1] = filepath
-    saveTBRList(list)
+
+    local RC = getRC()
+    if RC then
+        RC:_read()
+        if not RC.coll[TBR_COLL_NAME] then
+            RC:addCollection(TBR_COLL_NAME)
+        end
+        -- Call the *original* (un-hooked) addItem by going through the metatable
+        -- directly — we stored the original in plugin._orig_rc_additem, but we
+        -- don't have access to plugin here.  Instead we build the entry manually,
+        -- matching what buildEntry / addItem would do.
+        local ffiUtil = require("ffi/util")
+        local lfs2    = require("libs/libkoreader-lfs")
+        local real    = ffiUtil.realpath(filepath) or filepath
+        if real and lfs2.attributes(real, "mode") == "file" then
+            -- Compute next order manually (same logic as RC:getCollectionNextOrder).
+            local max_order = 0
+            for _, item in pairs(RC.coll[TBR_COLL_NAME]) do
+                if (item.order or 0) > max_order then max_order = item.order end
+            end
+            local attr = lfs2.attributes(real)
+            RC.coll[TBR_COLL_NAME][real] = {
+                file  = real,
+                text  = real:gsub(".*/", ""),
+                order = max_order + 1,
+                attr  = attr,
+            }
+            RC:write({ [TBR_COLL_NAME] = true })
+        end
+    end
+
+    -- Re-read the authoritative list after the RC write and sync settings.
+    _syncSettings(getTBRList())
     return true
 end
 
+--- Removes a book from the TBR list.
+--- Writes directly to RC internals (bypassing the hooked RC.removeItem).
 local function removeTBR(filepath)
-    local list = getTBRList()
-    local new  = {}
-    for _, fp in ipairs(list) do
-        if fp ~= filepath then new[#new + 1] = fp end
+    local RC = getRC()
+    if RC then
+        RC:_read()
+        local coll = RC.coll[TBR_COLL_NAME]
+        if coll then
+            local ffiUtil = require("ffi/util")
+            local real    = ffiUtil.realpath(filepath) or filepath
+            if real and coll[real] then
+                coll[real] = nil
+                RC:write({ [TBR_COLL_NAME] = true })
+            elseif coll[filepath] then
+                coll[filepath] = nil
+                RC:write({ [TBR_COLL_NAME] = true })
+            end
+        end
     end
-    saveTBRList(new)
+    -- Re-read and sync after RC write.
+    _syncSettings(getTBRList())
 end
 
 -- ---------------------------------------------------------------------------
@@ -111,6 +232,17 @@ M.enabled_key = "tbr"
 M.default_on  = false
 
 function M.reset() _SH = nil end
+
+-- Public constants
+M.TBR_COLL_NAME = TBR_COLL_NAME
+M.TBR_MAX       = TBR_MAX
+
+-- Returns the localised display name for the TBR collection.
+-- Use this wherever the name is shown to the user; keep TBR_COLL_NAME
+-- for all RC / settings key lookups.
+function M.getDisplayName()
+    return _("To Be Read")
+end
 
 -- Public API
 M.getTBRList  = getTBRList
@@ -170,7 +302,7 @@ function M.build(w, ctx)
     for i = 1, cols do
         local fp    = tbr_fps[i]
         local bd    = SH.getBookData(fp, ctx.prefetched and ctx.prefetched[fp])
-        local cover = SH.getBookCover(fp, cw, ch) or SH.coverPlaceholder(bd.title, cw, ch)
+        local cover = SH.getBookCover(fp, cw, ch, nil, 0.10) or SH.coverPlaceholder(bd.title, cw, ch)
 
         -- No progress bar, no percentage — just the cover.
         local cell = VerticalGroup:new{
@@ -296,7 +428,18 @@ function M.getMenuItems(ctx_menu)
                             new_list[#new_list + 1] = item.filepath
                         end
                     end
-                    saveTBRList(new_list)
+                    -- Persist new order into ReadCollection.
+                    local RC2 = getRC()
+                    if RC2 and RC2.coll[TBR_COLL_NAME] then
+                        local ordered = {}
+                        for _, fp in ipairs(new_list) do
+                            local entry = RC2.coll[TBR_COLL_NAME][fp]
+                            if entry then ordered[#ordered + 1] = entry end
+                        end
+                        RC2:updateCollectionOrder(TBR_COLL_NAME, ordered)
+                        RC2:write({ [TBR_COLL_NAME] = true })
+                    end
+                    _syncSettings(new_list)
                     refresh()
                 end,
             })

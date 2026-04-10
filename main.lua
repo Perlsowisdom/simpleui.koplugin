@@ -330,30 +330,80 @@ function SimpleUIPlugin:onCloseDocument()
         if SP then SP.invalidate(); needs_refresh = true end
     end
 
+    -- Determine the filepath of the book that just closed.
+    -- readhistory.hist[1] is still the closing book at this point (the reader
+    -- has not yet handed control back to the FM, so the history order has not
+    -- been updated).
+    local rh         = package.loaded["readhistory"]
+    local closed_fp  = rh and rh.hist and rh.hist[1] and rh.hist[1].file
+
     -- Currently Reading shows the current book's cover, title, author and
-    -- progress (percent_finished). All of these come from _cached_books_state,
-    -- which keep_cache=true preserves. When the reader closes, percent_finished
-    -- has changed — clear _cached_books_state so the next prefetchBooks() re-reads
-    -- the updated sidecar data.
+    -- progress (percent_finished). All of these come from _cached_books_state.
+    -- When the reader closes, percent_finished has changed for the closed book.
+    -- Instead of discarding the entire _cached_books_state (which forces
+    -- prefetchBooks() to re-open every sidecar), we do a surgical invalidation:
+    -- only the entry for the closed book is removed from prefetched_data.
+    -- prefetchBooks() will then re-open exactly one sidecar (the closed book)
+    -- and reuse the mtime-validated sidecar cache for all other entries.
     local mod_cr = Registry.get("currently")
     currently_active = mod_cr and Registry.isEnabled(mod_cr, PFX) or false
     if currently_active then
-        if HS._instance then HS._instance._cached_books_state = nil end
-        HS._cached_books_state = nil
+        -- Read the md5 of the closing book BEFORE _partial_invalidate removes
+        -- its prefetched_data entry.  Needed below to surgically evict only
+        -- this book from the Cover Deck stats cache.
+        local closed_md5
+        if closed_fp then
+            local bs_pre = (HS._instance and HS._instance._cached_books_state)
+                        or HS._cached_books_state
+            local pe = bs_pre and bs_pre.prefetched_data
+                    and bs_pre.prefetched_data[closed_fp]
+            closed_md5 = pe and pe.partial_md5_checksum
+        end
+
+        local function _partial_invalidate(bs)
+            if not bs then return end
+            -- Drop the entry for the closed book so prefetchBooks() re-reads it.
+            if bs.prefetched_data and closed_fp then
+                bs.prefetched_data[closed_fp] = nil
+            end
+            -- current_fp will be re-resolved by the next prefetchBooks() call.
+            -- Setting it to nil here ensures Currently Reading does not paint
+            -- stale progress data before the refresh completes.
+            bs.current_fp = nil
+        end
+        _partial_invalidate(HS._instance and HS._instance._cached_books_state)
+        _partial_invalidate(HS._cached_books_state)
+        -- When the homescreen is not visible (HS._instance == nil), the partially
+        -- invalidated HS._cached_books_state (with current_fp=nil) would be passed
+        -- to the next HomescreenWidget:new{} in Homescreen.show(). Because the
+        -- state is non-nil, _buildCtx() skips prefetchBooks() entirely, leaving
+        -- ctx.current_fp = nil and causing Currently Reading to disappear.
+        -- Fix: discard the shared cached state so _buildCtx() is forced to call
+        -- prefetchBooks() from scratch on the next Homescreen.show().
+        if not HS._instance then
+            HS._cached_books_state = nil
+        end
         local MC = package.loaded["desktop_modules/module_currently"]
         if MC and MC.invalidateCache then MC.invalidateCache() end
+
+        -- Invalidate the Cover Deck stats cache for the closed book only.
+        -- The other books in the carousel have not been read, so their cached
+        -- stats are still valid and should not be discarded.
+        local MCD = package.loaded["desktop_modules/module_coverdeck"]
+        if MCD and MCD.invalidateCacheForMd5 then
+            MCD.invalidateCacheForMd5(closed_md5)
+        end
+
         needs_refresh = true
     end
 
     if not needs_refresh then return end
 
-    -- Invalidate the sidecar cache entry for the book that just closed so the
+    -- Invalidate the sidecar mtime-cache entry for the closed book so the
     -- next prefetchBooks() re-reads its updated sidecar (percent_finished, stats).
-    -- All other entries remain valid — they haven't changed.
+    -- All other entries remain valid — they have not changed.
     local SH = package.loaded["desktop_modules/module_books_shared"]
     if SH and SH.invalidateSidecarCache then
-        local rh = package.loaded["readhistory"]
-        local closed_fp = rh and rh.hist and rh.hist[1] and rh.hist[1].file
         SH.invalidateSidecarCache(closed_fp)  -- nil flushes all; fp invalidates only that entry
     end
 

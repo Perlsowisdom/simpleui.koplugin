@@ -779,7 +779,6 @@ msgstr ""
 msgid "Modules  (%d)"
 msgstr ""
 
-
 #: sui_menu.lua:1275
 msgid "Modules  (%d/%d — %d left)"
 msgstr ""
@@ -914,7 +913,6 @@ msgstr ""
 #: sui_menu.lua:494
 msgid "Number of Pages in Title Bar Always"
 msgstr ""
-
 
 #: sui_quickactions.lua:286
 msgid "OK"
@@ -1088,9 +1086,19 @@ msgstr ""
 msgid "Reading Stats"
 msgstr ""
 
+#: desktop_modules/module_flow_recent.lua:55
+msgid "Flow Recent Books"
+msgstr ""
+
 #: desktop_modules/module_recent.lua:61
 #: desktop_modules/module_recent.lua:62
-msgid "Recent Books"
+#: desktop_modules/module_flow_recent.lua:56
+#: desktop_modules/module_flow_recent.lua:93
+msgid "Cover Deck"
+msgstr ""
+
+#: desktop_modules/module_flow_recent.lua:124
+msgid "To Be Read (Deck)"
 msgstr ""
 
 #: sui_quickactions.lua:815
@@ -1614,8 +1622,6 @@ msgstr ""
 msgid "Stats layout"
 msgstr ""
 
-
-
 #: sui_menu.lua:356
 msgid "Pagination bar set to Default.\n\nRestart now?"
 msgstr ""
@@ -1737,7 +1743,6 @@ msgstr ""
 msgid "Download and install"
 msgstr ""
 
-
 #: sui_menu.lua
 msgid "Return to Book Folder"
 msgstr ""
@@ -1810,7 +1815,155 @@ msgstr ""
 msgid "No books found in this series."
 msgstr ""
 
-
 #: sui_foldercovers.lua
 msgid "Scan subfolders for cover"
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+msgid "Scale for this module."
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+msgid "Scale for the cover thumbnails only.\n100% is the default size."
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+msgid "Scale for title and statistics text.\n100% is the default size."
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+#: sui_menu.lua
+msgid "Recent Books"
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+msgid "Title Position"
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+msgid "Above"
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+msgid "Below"
+msgstr ""
+
+#: desktop_modules/module_coverdeck.lua
+msgid "Arrange Statistics"
+msgstr ""
+
+#: sui_menu.lua
+msgid "Updater module not found."
+msgstr ""
+
+#: sui_menu.lua
+msgid "Recent"
+msgstr ""
+
+#: sui_menu.lua
+msgid "KOReader"
+msgstr ""
+
+#: sui_config.lua:165 sui_menu.lua:553
+msgid "Custom Text"
+msgstr ""
+
+
+#: sui_menu.lua:545 sui_menu.lua:547
+msgid "Edit Custom Text"
+msgstr ""
+
+
+#: sui_menu.lua:1953
+msgid "Folder Name Text Size"
+msgstr ""
+
+
+#: sui_menu.lua:1951
+msgid "Text size"
+msgstr ""
+
+
+#: sui_menu.lua:566
+msgid "Set"
+msgstr ""
+
+
+#: sui_menu.lua:556
+msgid "Text shown in the top bar.\nMaximum %d characters."
+msgstr ""
+
+
+#: sui_menu.lua:1954
+msgid "Scale for the folder name overlay text.\n100% is the default size."
+msgstr ""
+
+
+#: sui_config.lua:1748
+msgid "Show section label"
+msgstr ""
+
+
+#: sui_updater.lua:377
+msgid "Update cancelled."
+msgstr ""
+
+
+#: sui_updater.lua:487
+msgid "Update check cancelled."
+msgstr ""
+
+
+#: sui_updater.lua:466
+msgid "Error checking for updates."
+msgstr ""
+
+
+#: sui_updater.lua:407
+msgid "Simple UI %s is available!\nYou have %s."
+msgstr ""
+
+
+#: sui_updater.lua:410
+msgid "\n\nDownload and install now?"
+msgstr ""
+
+
+#: sui_updater.lua:412
+msgid "What's new:"
+msgstr ""
+
+
+#: sui_updater.lua:419
+msgid "No automatic update file was found.\n\nOpen the releases page on GitHub?"
+msgstr ""
+
+
+#: sui_menu.lua:1772
+msgid "When enabled, opening the file browser after finishing or closing a book navigates to the folder the book is in, matching native KOReader behaviour.\nWhen disabled (default), SimpleUI always returns to the library root.\nThis option works independently of \"Start with Home Screen\"."
+msgstr ""
+
+
+#: sui_updater.lua:460
+msgid "Checking for updates…"
+msgstr ""
+
+
+#: sui_updater.lua:323
+msgid "Downloading Simple UI %s…"
+msgstr ""
+
+
+#: sui_menu.lua:1492
+msgid "Choose how many pages the homescreen has.\nEmpty pages stay empty. Modules keep their position."
+msgstr ""
+
+
+#: sui_menu.lua:1549 sui_menu.lua:1569
+msgid "Page %d"
+msgstr ""
+
+
+#: sui_menu.lua:1580
+msgid "Cannot place modules after Page 1 separator.\nPage 1 must always have at least 1 module."
 msgstr ""

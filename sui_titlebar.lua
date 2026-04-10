@@ -552,9 +552,18 @@ function M.apply(fm_self)
                         local current_path = fc_self.path or ""
                         local is_at_home_or_root = (current_path == "/" or _isLockedAtHome(current_path))
                         
-                        -- If we are NOT at root/home, is_sub is true (we want the back button).
-                        -- Also treat a virtual series folder as a sub-level regardless of path.
-                        local is_sub = not is_at_home_or_root or (fc_self._simpleui_has_go_up == true)
+                        -- Root/home always wins: if the path says we are home, the back
+                        -- button must be hidden regardless of any stale _simpleui_has_go_up
+                        -- flag left over from a previous subfolder visit.
+                        -- The virtual-series override only applies when we are NOT at root.
+                        local is_sub
+                        if is_at_home_or_root then
+                            is_sub = false
+                        else
+                            -- In a real subfolder, or a virtual series folder (whose path
+                            -- equals the real parent) — honour the has_go_up flag.
+                            is_sub = true
+                        end
                         
                         -- Synchronize the internal flag
                         fc_self._simpleui_has_go_up = is_sub
