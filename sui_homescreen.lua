@@ -2498,6 +2498,14 @@ function HomescreenWidget:onResume()
 end
 
 function HomescreenWidget:onSetRotationMode(mode)
+    -- If the reader is open, this rotation event originated inside ReaderUI.
+    -- The reader handles its own layout in-place via SetDimensions/onScreenResize
+    -- and does NOT close+reopen itself on rotation. Closing and rebuilding the
+    -- homescreen underneath an active reader corrupts the UIManager widget stack
+    -- on some Kobo builds and causes the reader to exit unexpectedly.
+    local RUI = package.loaded["apps/reader/readerui"]
+    if RUI and RUI.instance then return end
+
     -- The Screen has already been rotated by FileManager:onSetRotationMode before
     -- this event reaches HomescreenWidget via broadcastEvent. Check whether the
     -- dimensions actually changed -- portrait<->inverted-portrait and
