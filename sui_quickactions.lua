@@ -391,7 +391,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
         local function showPluginSubmenu(plugins_list, parent_picker, title_override, parent_plugin)
             local sub_buttons = {}
-            for _, a in ipairs(plugins_list) do
+            for _ai, a in ipairs(plugins_list) do
                 local _a = a
                 sub_buttons[#sub_buttons + 1] = {{ text = _a.title, callback = function()
                     UIManager:close(plugin._qa_plugin_sub_picker)
@@ -431,7 +431,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         end
 
         local buttons = {}
-        for _, a in ipairs(plugins) do
+        for _ai, a in ipairs(plugins) do
             local _a = a
             if _a.has_submenu and _a.submenu_items then
                 -- Grouped plugin: show a submenu of available actions
@@ -857,7 +857,7 @@ local function _getPluginCallback(inst, fm_key)
                     cb = function()
                         local ok_sub, sub = pcall(sub_func)
                         if ok_sub and type(sub) == "table" then
-                            for _, s in ipairs(sub) do
+                            for idx, s in ipairs(sub) do
                                 if type(s) == "table" and type(s.callback) == "function" then
                                     s.callback(); return
                                 end
@@ -898,7 +898,7 @@ local function _getPluginCallback(inst, fm_key)
                         cb = function()
                             local ok_sub, sub = pcall(sub_func)
                             if ok_sub and type(sub) == "table" then
-                                for _, s in ipairs(sub) do
+                                for idx, s in ipairs(sub) do
                                     if type(s) == "table" and type(s.callback) == "function" then
                                         s.callback(); return
                                     end
@@ -1117,7 +1117,7 @@ local function _buildSaveDialog(spec)
     end
 
     local fields = {}
-    for _, f in ipairs(spec.fields) do
+    for _fi, f in ipairs(spec.fields) do
         fields[#fields + 1] = {
             description = f.description,
             text = f.text or "",
@@ -1258,7 +1258,7 @@ function QA.showPluginPickerForTab(plugin, pos)
 
     local function showTabPluginSubmenu(plugins_list, title_override)
         local sub_buttons = {}
-        for _, a in ipairs(plugins_list) do
+        for _ai, a in ipairs(plugins_list) do
             local _a = a
             sub_buttons[#sub_buttons + 1] = {{ text = _a.title, callback = function()
                 UIManager_:close(plugin._qa_tab_plugin_sub_picker)
@@ -1277,7 +1277,7 @@ function QA.showPluginPickerForTab(plugin, pos)
     end
 
     local buttons = {}
-    for _, a in ipairs(plugins) do
+    for _ai, a in ipairs(plugins) do
         local _a = a
         if _a.has_submenu and _a.submenu_items then
             buttons[#buttons + 1] = {{ text = _a.title, callback = function()
