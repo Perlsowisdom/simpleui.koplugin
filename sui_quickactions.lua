@@ -1007,6 +1007,9 @@ function QA._getPluginList()
             logger.dbg("[simpleui] _getPluginList: no callback for", name)
             return
         end
+        -- Guard against nil/empty title from MC array-index entries in Method 2
+        if not title or title == "" then return end
+
         results[#results + 1] = {
             fm_key   = name,
             title    = title,
