@@ -230,6 +230,44 @@ end
 -- Lazy scan: build plugin list on first use, not at boot time
 local _cached_plugin_list = nil
 
+-- FM-internal component keys that must be excluded from plugin scanning.
+local _fm_internal_keys = {
+    file_chooser   = true,
+    collections    = true,
+    menu           = true,
+    copy_password  = true,
+}
+
+-- Returns true for FM-internal keys that are not real KOReader plugins.
+local function _isFMInternalKey(k)
+    if _fm_internal_keys[k] then return true end
+    if k:match("^file_chooser") then return true end
+    if k:match("^collection") then return true end
+    return false
+end
+
+-- Entry-point method priority list (used by _getPluginEntryPoint).
+-- Methods that open a fullscreen view/dialog, plus ones used by specific plugins.
+-- Order matters: first match wins.
+local _ENTRY_METHODS = {
+    "onShow", "show", "open", "onOpen", "launch",
+    "showBrowser",    -- AppStore
+    "onSearchBooks",  -- BookFusion
+    "onShowTextEditor",
+    "onShowWallabag", "onShowCalendar", "onShowCalibre",
+    "onShowDropbox", "onShowEvernote", "onShowZotero",
+    "onShowPlugin", "onShowStatistics",
+    "onShowStore", "onShowHTTP", "onShowProfiles", "onShowGestures",
+}
+
+-- Returns { method_name, callback } for the first matching entry point on inst.
+local function _getPluginEntryPoint(inst)
+    if type(inst) ~= "table" then return nil, nil end
+    for _, m in ipairs(_ENTRY_METHODS) do
+        if type(inst[m]) == "function" then return m, inst[m] end
+    end
+    return nil, nil
+end
 
 -- ---------------------------------------------------------------------------
 -- Create / Edit dialog
@@ -764,11 +802,31 @@ local _BUILTIN_SKIP = {
 }
 
 -- Tries to get a callable entry-point callback from a plugin instance.
--- 1. addToMainMenu capturer (harvests first available callback)
--- 2. Direct method probing via _PROBE_METHODS
--- 3. Pattern fallback (onShow / onOpen / onLaunch)
--- Returns (callback, display_title, method_name).
+-- 1. Force addToMainMenu for registerToMainMenu()-based plugins (AppStore)
+-- 2. addToMainMenu capturer (harvests first available callback via mc:add)
+-- 3. Direct key assignment harvester (BookFusion-style: menu_items.xxx = {callback=...})
+-- 4. Special case: showBrowser (AppStore), onSearchBooks (BookFusion)
+-- 5. Direct method probing via _ENTRY_METHODS
+-- 6. Pattern fallback (onShow / onOpen / onLaunch)
+-- Returns (callback, display_title, method_name). callback is nil if nothing found.
 local function _getPluginCallback(inst, fm_key)
+    -- Pre-force addToMainMenu for plugins that use self.ui.menu:registerToMainMenu.
+    -- AppStore does NOT add via mc:add() - it calls registerToMainMenu which adds
+    -- directly to FM's menu. We call it here to trigger any side-effects.
+    if type(inst.addToMainMenu) == "function" then
+        local dummy_mc = {
+            items = {},
+            add = function() end,
+            registerItem = function() end,
+            registerToMainMenu = function(widget)
+                if type(widget and widget.addToMainMenu) == "function" then
+                    pcall(widget.addToMainMenu, widget, dummy_mc)
+                end
+            end,
+        }
+        pcall(inst.addToMainMenu, inst, dummy_mc)
+    end
+
     -- Method 1: rebuild the plugin's addToMainMenu menu and grab first callback
     if type(inst.addToMainMenu) == "function" then
         local mc = {
@@ -777,35 +835,111 @@ local function _getPluginCallback(inst, fm_key)
                 if item then self.items[#self.items + 1] = item end
             end,
             registerItem = function(self, item) return self:add(item) end,
+            registerToMainMenu = function(self, widget)
+                if type(widget.addToMainMenu) == "function" then
+                    pcall(widget.addToMainMenu, widget, mc)
+                end
+            end,
         }
-        pcall(inst.addToMainMenu, inst, mc)
-        for _, item in ipairs(mc.items) do
-            local cb = item.callback
-            if not cb and type(item.sub_item_table) == "table" then
-                for _, sub in ipairs(item.sub_item_table) do
-                    if type(sub) == "table" and type(sub.callback) == "function" then
-                        cb = sub.callback; break
+        local ok = pcall(inst.addToMainMenu, inst, mc)
+        if ok then
+            for _, item in ipairs(mc.items) do
+                local cb = item.callback
+                if not cb and type(item.sub_item_table) == "table" then
+                    for _, sub in ipairs(item.sub_item_table) do
+                        if type(sub) == "table" and type(sub.callback) == "function" then
+                            cb = sub.callback; break
+                        end
                     end
                 end
-            end
-            if type(cb) == "function" then
-                local title = item.text or item.title or _pluginDisplayName(fm_key)
-                return cb, title, nil
+                if not cb and type(item.sub_item_table_func) == "function" then
+                    local sub_func = item.sub_item_table_func
+                    cb = function()
+                        local ok_sub, sub = pcall(sub_func)
+                        if ok_sub and type(sub) == "table" then
+                            for _, s in ipairs(sub) do
+                                if type(s) == "table" and type(s.callback) == "function" then
+                                    s.callback(); return
+                                end
+                            end
+                        end
+                    end
+                end
+                if type(cb) == "function" then
+                    local title = item.text or item.title or _pluginDisplayName(fm_key)
+                    return function(...) return cb(inst, ...) end, title, nil
+                end
             end
         end
     end
-    -- Method 2: direct method probing
+
+    -- Method 2: also check direct key assignments on mc (BookFusion-style:
+    -- plugins that do menu_items.xxx = {callback=...} instead of mc:add())
+    if type(inst.addToMainMenu) == "function" then
+        local mc = {
+            items = {},
+            add = function(self, item)
+                if item then self.items[#self.items + 1] = item end
+            end,
+            registerItem = function(self, item) return self:add(item) end,
+            registerToMainMenu = function(self, widget)
+                if type(widget.addToMainMenu) == "function" then
+                    pcall(widget.addToMainMenu, widget, mc)
+                end
+            end,
+        }
+        pcall(inst.addToMainMenu, inst, mc)
+        for k, v in pairs(mc) do
+            if type(k) == "string" and k ~= "items" and k ~= "add" and k ~= "registerItem" and k ~= "registerToMainMenu" then
+                if type(v) == "table" then
+                    local cb = v.callback
+                    if not cb and type(v.sub_item_table_func) == "function" then
+                        local sub_func = v.sub_item_table_func
+                        cb = function()
+                            local ok_sub, sub = pcall(sub_func)
+                            if ok_sub and type(sub) == "table" then
+                                for _, s in ipairs(sub) do
+                                    if type(s) == "table" and type(s.callback) == "function" then
+                                        s.callback(); return
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if type(cb) == "function" then
+                        local title = v.text or _pluginDisplayName(k)
+                        return cb, title, nil
+                    end
+                end
+            end
+        end
+    end
+
+    -- Method 3: special cases for plugins that need specific arguments.
+    -- These CANNOT be called with no args, so handle them explicitly.
+    if fm_key == "appstore" and type(inst.showBrowser) == "function" then
+        -- showBrowser(kind) - "plugin" opens the plugin browser
+        return function() inst:showBrowser("plugin") end, "AppStore", "showBrowser"
+    end
+    if fm_key == "bookfusion" and type(inst.onSearchBooks) == "function" then
+        return function() inst:onSearchBooks() end, "BookFusion", "onSearchBooks"
+    end
+
+    -- Method 4: direct method probing (NO showBrowser here - needs args)
     for _, method in ipairs({
         "onShow", "show", "open", "launch", "onOpen",
         "onShowHist", "onShowBookInfo", "onShowColl", "onShowCollList",
         "onShowFileSearch", "onShowFolderShortcutsDialog",
         "onShowDictionaryLookup", "onShowWikipediaLookup",
+        "onSearchBooks", "onPushPosition",  -- BookFusion (no-arg form)
+        "showStatistics",  -- Statistics
     }) do
         if type(inst[method]) == "function" then
             return inst[method], _pluginDisplayName(fm_key), method
         end
     end
-    -- Method 3: pattern fallback
+
+    -- Method 5: pattern fallback
     for k, v in pairs(inst) do
         if type(k) == "string" and type(v) == "function" then
             if k:match("^onShow") or k:match("^onOpen") or k:match("^onLaunch") then
@@ -815,7 +949,6 @@ local function _getPluginCallback(inst, fm_key)
     end
     return nil, nil, nil
 end
-
 -- Unified plugin scanner: directly probes all loaded plugin instances
 -- from both FM registration and PluginLoader (enabled_plugins + loaded_plugins).
 -- Replaces the old _scanFMPlugins + _scanNonFMPlugins approach.
@@ -828,9 +961,39 @@ function QA._getPluginList()
     -- KOReader's pluginloader stores:
     --   .enabled_plugins = { { name="plugname", path="/path/to/plug.koplugin" }, ... }  -- raw modules
     --   .loaded_plugins = { plugname = instance, ... }                                   -- instantiated
+    -- NOTE: enabled_plugins and loaded_plugins are nil until loadPlugins() is called.
     local ok_pl, PluginLoader = pcall(require, "pluginloader")
+    if ok_pl and PluginLoader then
+        -- Force PluginLoader to populate enabled_plugins / loaded_plugins
+        pcall(function() PluginLoader:loadPlugins() end)
+    end
     local enabled_plugins = ok_pl and PluginLoader and PluginLoader.enabled_plugins
     local loaded_plugins  = ok_pl and PluginLoader and PluginLoader.loaded_plugins
+
+    -- Force-instantiate any enabled plugins not yet in loaded_plugins.
+    -- This ensures AppStore, BookFusion, and other registerToMainMenu()-based plugins
+    -- appear in the plugin picker even if FileManager has not been opened yet.
+    if type(enabled_plugins) == "table" then
+        for _, plugin_module in ipairs(enabled_plugins) do
+            if type(plugin_module) == "table" and type(plugin_module.name) == "string" then
+                local name = plugin_module.name
+                if not loaded_plugins[name] then
+                    -- Provide a minimal ui mock so plugins that access self.ui do not crash
+                    local mock_ui = { menu = { registerToMainMenu = function() end } }
+                    local fm_loaded = package.loaded["apps/filemanager/filemanager"]
+                    local fm_instance = fm_loaded and fm_loaded.instance
+                    local ui_instance = fm_instance and fm_instance.ui or mock_ui
+                    local ok, inst_or_err = pcall(PluginLoader.createPluginInstance, PluginLoader, plugin_module, { ui = ui_instance })
+                    if ok and inst_or_err then
+                        loaded_plugins[name] = inst_or_err
+                        logger.dbg("[simpleui] _getPluginList: instantiated", name)
+                    else
+                        logger.dbg("[simpleui] _getPluginList: failed to instantiate", name, inst_or_err)
+                    end
+                end
+            end
+        end
+    end
 
     local function addPlugin(name, inst)
         if type(name) ~= "string" or name == "" or name == "simpleui" then return end
@@ -839,7 +1002,7 @@ function QA._getPluginList()
         if type(inst) ~= "table" then return end
         seen_keys[name] = true
 
-        local cb, title = _getPluginCallback(inst, name)
+        local cb, title, method = _getPluginCallback(inst, name)
         if not cb then
             logger.dbg("[simpleui] _getPluginList: no callback for", name)
             return
@@ -848,44 +1011,94 @@ function QA._getPluginList()
             fm_key   = name,
             title    = title,
             callback = cb,
+            method   = method,
         }
-        logger.dbg("[simpleui] _getPluginList: found plugin:", name)
+        logger.dbg("[simpleui] _getPluginList: found plugin:", name, "method:", method or "callback")
     end
 
-    -- Collect from FM instance (covers all FM-registered plugins)
+    -- Collect from FM instance (covers all FM-registered plugins).
+    -- FM is instantiated lazily on first file-manager open; on emulator it
+    -- should be available by the time the user opens the QA menu.
     local fm = package.loaded["apps/filemanager/filemanager"]
-    fm = fm and fm.instance
+    if fm and fm.instance then
+        fm = fm.instance
+    end
     if fm then
         for k, v in pairs(fm) do
-            if type(k) == "string" and type(v) == "table" then
+            if type(k) == "string" and type(v) == "table" and not _isFMInternalKey(k) then
                 addPlugin(k, v)
             end
         end
     end
 
-    -- Collect from PluginLoader enabled_plugins (raw modules, no instance yet)
-    -- and loaded_plugins (instantiated instances keyed by plugin name).
-    if type(enabled_plugins) == "table" then
-        for _, entry in ipairs(enabled_plugins) do
+    -- Collect from PluginLoader loaded_plugins (instantiated instances keyed by plugin name).
+    -- This is the most reliable source as it contains all currently-loaded plugin instances.
+    local PluginLoader = package.loaded["frontend/pluginloader"]
+    if PluginLoader then
+        local lp = type(PluginLoader.loaded_plugins) == "table" and PluginLoader.loaded_plugins or {}
+        for name, inst in pairs(lp) do
+            addPlugin(name, inst)
+        end
+    end
+
+    -- Also check enabled_plugins (raw modules) for any plugins not yet instantiated.
+    -- enabled_plugins entries are raw module tables with .name and .module_path fields.
+    local PluginLoader2 = package.loaded["frontend/pluginloader"]
+    if PluginLoader2 then
+        local ep = type(PluginLoader2.enabled_plugins) == "table" and PluginLoader2.enabled_plugins or {}
+        for _, entry in ipairs(ep) do
             if type(entry) == "table" and type(entry.name) == "string" then
-                -- Prefer the instantiated instance if available; fall back to the module itself
-                local inst = (type(loaded_plugins) == "table" and loaded_plugins[entry.name])
-                          or entry
-                addPlugin(entry.name, inst)
+                -- Only add if not already seen (loaded_plugins takes precedence)
+                if not seen_keys[entry.name] then
+                    addPlugin(entry.name, entry)
+                end
             end
         end
     end
 
-    -- Only cache non-empty results to handle the FM-not-ready-at-boot case
+    -- Fallback: scan plugins directory directly when FM/PluginLoader not ready
+    local plugins_dir = "/root/koreader/plugins"
+    local attr = lfs.attributes(plugins_dir)
+    if attr and attr.mode == "directory" then
+        for entry in lfs.dir(plugins_dir) do
+            if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
+                local plugin_path = plugins_dir .. "/" .. entry
+                local meta_path = plugin_path .. "/_meta.lua"
+                local main_path = plugin_path .. "/main.lua"
+                local meta_attr = lfs.attributes(meta_path)
+                local main_attr = lfs.attributes(main_path)
+                if meta_attr and main_attr then
+                    local ok_meta, meta = pcall(dofile, meta_path)
+                    local ok_main, main_mod = pcall(dofile, main_path)
+                    if ok_meta and meta and type(meta) == "table" and type(main_mod) == "table" then
+                        local title = meta.fullname or _pluginDisplayName(entry)
+                        local method, cb = _getPluginEntryPoint(main_mod)
+                        if cb then
+                            results[#results + 1] = {
+                                fm_key   = entry,
+                                title    = title,
+                                callback = cb,
+                                method   = method,
+                            }
+                            logger.dbg("[simpleui] _getPluginList: fs fallback found:", entry, "->", title)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     if #results > 0 then
         table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
         _cached_plugin_list = results
         logger.dbg("[simpleui] _getPluginList: found", #results, "plugins")
     else
-        logger.dbg("[simpleui] _getPluginList: 0 plugins, not caching (retry on next call)")
+        logger.warn("[simpleui] _getPluginList: no plugins found (FM or PluginLoader not ready?)")
     end
+
     return results
 end
+
 
 
 local function _buildSaveDialog(spec)
@@ -1114,8 +1327,16 @@ local function _scanDispatcherActions()
     for _, action_id in ipairs(order) do
         local def = settingsList[action_id]
         if type(def) == "table" and def.title and def.category == "none"
-                and (def.condition == nil or def.condition == true) then
-            results[#results + 1] = { id = action_id, title = tostring(def.title) }
+                and def.general == true then
+            -- Check condition if present (some general actions are device-conditional)
+            local passes_condition = true
+            if def.condition ~= nil then
+                local ok_c, cond_val = pcall(def.condition)
+                passes_condition = ok_c and cond_val == true
+            end
+            if passes_condition then
+                results[#results + 1] = { id = action_id, title = tostring(def.title) }
+            end
         end
     end
     table.sort(results, function(a, b) return a.title < b.title end)

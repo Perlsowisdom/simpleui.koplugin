@@ -107,7 +107,8 @@ M.PLUGIN_ENTRY_METHODS = {
     "open",
     "onOpen",
     "launch",
-    "onSearchBooks",
+    "showBrowser",   -- AppStore
+    "onSearchBooks",  -- BookFusion
     "onShowStore",
     "onShowTextEditor",
     "onShowWallabag",
