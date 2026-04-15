@@ -486,7 +486,22 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             local SimpleUI = require("simpleui")
             plugin = SimpleUI
         end
+local function _scanDispatcherActions() end
         local actions = _scanDispatcherActions()
+local function _scanDispatcherActions()
+    local ok_d, Dispatcher = pcall(require, "dispatcher")
+    if not ok_d or not Dispatcher then return {} end
+    pcall(function() Dispatcher:init() end)
+    local settingsList, dispatcher_menu_order
+    pcall(function()
+        local fn_idx = 1
+        while true do
+            local name, val = debug.getupvalue(Dispatcher.registerAction, fn_idx)
+            if not name then break end
+            if name == "settingsList" then settingsList = val end
+            if name == "dispatcher_menu_order" then dispatcher_menu_order = val end
+            fn_idx = fn_idx + 1
+        end
         if #actions == 0 then
             UIManager:show(InfoMessage:new{ text = _("No system actions found."), timeout = 3 })
             return
@@ -1212,6 +1227,41 @@ function QA.showDispatcherPickerForTab(plugin, pos)
     UIManager_:show(plugin._qa_tab_dispatcher_picker)
 end
 
+    end)
+    if type(settingsList) ~= "table" then return {} end
+    local order = (type(dispatcher_menu_order) == "table" and dispatcher_menu_order)
+        or (function()
+            local t = {}
+            for k in pairs(settingsList) do t[#t+1] = k end
+            table.sort(t)
+            return t
+        end)()
+    local results = {}
+    for _, action_id in ipairs(order) do
+        local def = settingsList[action_id]
+        if type(def) == "table" and def.title and def.category == "none"
+                and def.general == true then
+            -- Check condition if present (some general actions are device-conditional)
+            local passes_condition = true
+            if def.condition ~= nil then
+                local ok_c, cond_val = pcall(def.condition)
+                passes_condition = ok_c and cond_val == true
+            end
+            if passes_condition then
+                results[#results + 1] = { id = action_id, title = tostring(def.title) }
+            end
+        end
+    end
+    table.sort(results, function(a, b) return a.title < b.title end)
+    return results
+end
+
+
+
+
+
+
+
 function QA.showPluginPickerForTab(plugin, pos)
     -- Always re-scan when opening the picker — FM is fully initialized by
     -- now and registered_widgets is populated. Skipping the cache avoids
@@ -1303,50 +1353,5 @@ end
 
 
 -- Scans Dispatcher for available system actions
-local function _scanDispatcherActions()
-    local ok_d, Dispatcher = pcall(require, "dispatcher")
-    if not ok_d or not Dispatcher then return {} end
-    pcall(function() Dispatcher:init() end)
-    local settingsList, dispatcher_menu_order
-    pcall(function()
-        local fn_idx = 1
-        while true do
-            local name, val = debug.getupvalue(Dispatcher.registerAction, fn_idx)
-            if not name then break end
-            if name == "settingsList" then settingsList = val end
-            if name == "dispatcher_menu_order" then dispatcher_menu_order = val end
-            fn_idx = fn_idx + 1
-        end
-    end)
-    if type(settingsList) ~= "table" then return {} end
-    local order = (type(dispatcher_menu_order) == "table" and dispatcher_menu_order)
-        or (function()
-            local t = {}
-            for k in pairs(settingsList) do t[#t+1] = k end
-            table.sort(t)
-            return t
-        end)()
-    local results = {}
-    for _, action_id in ipairs(order) do
-        local def = settingsList[action_id]
-        if type(def) == "table" and def.title and def.category == "none"
-                and def.general == true then
-            -- Check condition if present (some general actions are device-conditional)
-            local passes_condition = true
-            if def.condition ~= nil then
-                local ok_c, cond_val = pcall(def.condition)
-                passes_condition = ok_c and cond_val == true
-            end
-            if passes_condition then
-                results[#results + 1] = { id = action_id, title = tostring(def.title) }
-            end
-        end
-    end
-    table.sort(results, function(a, b) return a.title < b.title end)
-    return results
-end
-
-
-
 return QA
 
