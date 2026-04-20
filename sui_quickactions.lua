@@ -27,6 +27,7 @@ local function _pluginDisplayName(raw)
         :gsub("[_%-]", " ")
         :match("^%s*(.-)%s*$")
     if raw == "" then return "?" end
+    return raw
 end
 
 local QA = {}
@@ -39,6 +40,9 @@ local QA = {}
 -- file's location so it works on Android (relative paths fail there).
 local _qa_plugin_dir = debug.getinfo(1, "S").source:match("^@(.+/)[^/]+$") or "./"
 QA.ICONS_DIR = _qa_plugin_dir .. "icons/custom"
+-- Derive the parent plugins/ directory for the filesystem fallback scanner.
+-- Works on Kobo (/mnt/onboard/.adds/koreader/plugins/), Kindle, and emulator.
+local _plugins_dir = _qa_plugin_dir:match("^(.*plugins/)[^/]+/?$") or ""
 
 -- ---------------------------------------------------------------------------
 -- Default-action label / icon overrides
@@ -1059,13 +1063,14 @@ function QA._getPluginList()
         end
     end
 
-    -- Fallback: scan plugins directory directly when FM/PluginLoader not ready
-    local plugins_dir = "/root/koreader/plugins"
-    local attr = lfs.attributes(plugins_dir)
+    -- Fallback: scan plugins directory directly when FM/PluginLoader not ready.
+    -- _plugins_dir is derived from this file's own path — works on Kobo, Kindle, emulator.
+    if _plugins_dir ~= "" then
+    local attr = lfs.attributes(_plugins_dir)
     if attr and attr.mode == "directory" then
-        for entry in lfs.dir(plugins_dir) do
+        for entry in lfs.dir(_plugins_dir) do
             if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
-                local plugin_path = plugins_dir .. "/" .. entry
+                local plugin_path = _plugins_dir .. entry
                 local meta_path = plugin_path .. "/_meta.lua"
                 local main_path = plugin_path .. "/main.lua"
                 local meta_attr = lfs.attributes(meta_path)
@@ -1090,6 +1095,7 @@ function QA._getPluginList()
             end
         end
     end
+    end -- _plugins_dir ~= ""
 
     if #results > 0 then
         table.sort(results, function(a, b) return a.title:lower() < b.title:lower() end)
