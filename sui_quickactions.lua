@@ -319,6 +319,69 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
     local sanitize = Config.sanitizeLabel
 
+    local function _buildSaveDialog(spec)
+        local title = spec.title or dlg_title
+        local active_dialog = nil
+
+        local function openIconPicker()
+            if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
+            QA.showIconPicker(chosen_icon, function(new_icon)
+                chosen_icon = new_icon
+                _buildSaveDialog(spec)
+            end, spec.icon_default_label or _("Icon"), plugin, "_qa_icon_picker")
+        end
+
+        local fields = {}
+        for _fi, f in ipairs(spec.fields) do
+            fields[#fields + 1] = {
+                description = f.description,
+                text = f.text or "",
+                hint = f.hint,
+            }
+        end
+
+        local buttons = {
+            {
+                text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
+                callback = function()
+                    openIconPicker()
+                end,
+            },
+            {
+                text = _("Cancel"),
+                callback = function()
+                    UIManager:close(active_dialog)
+                    active_dialog = nil
+                end,
+            },
+            {
+                text = _("Save"),
+                is_enter_default = true,
+                callback = function()
+                    local inputs = active_dialog:getFields()
+                    if spec.validate then
+                        local err = spec.validate(inputs)
+                        if err then
+                            UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
+                            return
+                        end
+                    end
+                    UIManager:close(active_dialog)
+                    active_dialog = nil
+                    spec.on_save(inputs)
+                end,
+            },
+        }
+
+        active_dialog = MultiInputDialog:new{
+            title = title,
+            fields = fields,
+            buttons = buttons,
+        }
+        UIManager:show(active_dialog)
+        pcall(function() active_dialog:onShowKeyboard() end)
+    end
+
     local function openPathChooser(plugin)
         UIManager:show(PathChooser:new{
             select_directory = true, select_file = false, show_files = false,
@@ -1116,69 +1179,6 @@ function QA._getPluginList()
 end
 
 
-
-local function _buildSaveDialog(spec)
-    local title = spec.title or dlg_title
-    local active_dialog = nil
-
-    local function openIconPicker()
-        if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
-        QA.showIconPicker(chosen_icon, function(new_icon)
-            chosen_icon = new_icon
-            _buildSaveDialog(spec)
-        end, spec.icon_default_label or _("Icon"), plugin, "_qa_icon_picker")
-    end
-
-    local fields = {}
-    for _fi, f in ipairs(spec.fields) do
-        fields[#fields + 1] = {
-            description = f.description,
-            text = f.text or "",
-            hint = f.hint,
-        }
-    end
-
-    local buttons = {
-        {
-            text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
-            callback = function()
-                openIconPicker()
-            end,
-        },
-        {
-            text = _("Cancel"),
-            callback = function()
-                UIManager:close(active_dialog)
-                active_dialog = nil
-            end,
-        },
-        {
-            text = _("Save"),
-            is_enter_default = true,
-            callback = function()
-                local inputs = active_dialog:getFields()
-                if spec.validate then
-                    local err = spec.validate(inputs)
-                    if err then
-                        UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
-                        return
-                    end
-                end
-                UIManager:close(active_dialog)
-                active_dialog = nil
-                spec.on_save(inputs)
-            end,
-        },
-    }
-
-    active_dialog = MultiInputDialog:new{
-        title = title,
-        fields = fields,
-        buttons = buttons,
-    }
-    UIManager:show(active_dialog)
-    pcall(function() active_dialog:onShowKeyboard() end)
-end
 
 -- Scans Dispatcher for available system actions.
 -- Defined here — before showDispatcherPickerForTab — so Lua captures it as an upvalue.
