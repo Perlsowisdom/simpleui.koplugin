@@ -1024,16 +1024,27 @@ function QA._getPluginList()
         logger.dbg("[simpleui] _getPluginList: found plugin:", name, "method:", method or "callback")
     end
 
-    -- Collect from FM instance (covers all FM-registered plugins).
-    -- FM is instantiated lazily on first file-manager open; on emulator it
-    -- should be available by the time the user opens the QA menu.
+    -- Build an allowlist from enabled_plugins so Source 1 only picks up real plugins,
+    -- not built-in FM components whose key names vary across devices/builds.
+    local plugin_name_set = {}
+    if type(enabled_plugins) == "table" then
+        for _, pm in ipairs(enabled_plugins) do
+            if type(pm) == "table" and type(pm.name) == "string" then
+                plugin_name_set[pm.name] = true
+            end
+        end
+    end
+
+    -- Collect from FM instance (covers plugins already attached to the running FM).
+    -- Use plugin_name_set as allowlist to exclude built-in FM components (readhistory,
+    -- reading_collection, filesearcher, etc.) that vary by device/build.
     local fm = package.loaded["apps/filemanager/filemanager"]
     if fm and fm.instance then
         fm = fm.instance
     end
     if fm then
         for k, v in pairs(fm) do
-            if type(k) == "string" and type(v) == "table" and not _isFMInternalKey(k) then
+            if type(k) == "string" and type(v) == "table" and plugin_name_set[k] then
                 addPlugin(k, v)
             end
         end
