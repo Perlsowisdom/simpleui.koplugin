@@ -325,34 +325,38 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
             }
         end
 
+        -- MultiInputDialog expects buttons as a list of rows, each row being
+        -- a list of button objects: { { {btn1, btn2}, {btn3} } }.
         local buttons = {
             {
-                text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
-                callback = openIconPicker,
-            },
-            {
-                text = _("Cancel"),
-                callback = function()
-                    UIManager:close(active_dialog)
-                    active_dialog = nil
-                end,
-            },
-            {
-                text = _("Save"),
-                is_enter_default = true,
-                callback = function()
-                    local inputs = active_dialog:getFields()
-                    if spec.validate then
-                        local err = spec.validate(inputs)
-                        if err then
-                            UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
-                            return
+                {
+                    text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
+                    callback = openIconPicker,
+                },
+                {
+                    text = _("Cancel"),
+                    callback = function()
+                        UIManager:close(active_dialog)
+                        active_dialog = nil
+                    end,
+                },
+                {
+                    text = _("Save"),
+                    is_enter_default = true,
+                    callback = function()
+                        local inputs = active_dialog:getFields()
+                        if spec.validate then
+                            local err = spec.validate(inputs)
+                            if err then
+                                UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
+                                return
+                            end
                         end
-                    end
-                    UIManager:close(active_dialog)
-                    active_dialog = nil
-                    spec.on_save(inputs)
-                end,
+                        UIManager:close(active_dialog)
+                        active_dialog = nil
+                        spec.on_save(inputs)
+                    end,
+                },
             },
         }
 
