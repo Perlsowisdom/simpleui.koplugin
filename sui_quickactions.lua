@@ -1049,77 +1049,43 @@ function QA._getPluginList()
         end
     end
 
-    -- Source 3: enabled_plugins class tables used directly as plugin "instances".
-    -- Each entry in enabled_plugins is the loaded plugin class table — it has
-    -- .name, .fullname, .path, and all methods (addToMainMenu, showBrowser, etc.).
-    -- NOTE: avoid referencing the `PluginLoader` local here — it is shadowed by the
-    -- Source-2 re-declaration above; use the `enabled_plugins` upvalue directly.
+    -- Source 3: enabled_plugins class tables (each has addToMainMenu, showBrowser, etc.).
+    -- NOTE: use `enabled_plugins` upvalue directly — the Source-2 `local PluginLoader`
+    -- shadows the outer one and may be nil under a different module key.
+    -- Also derives plugins_scan_dir for Source 4 in the same pass.
+    local plugins_scan_dir = _plugins_dir
     if type(enabled_plugins) == "table" then
         for _, pm in ipairs(enabled_plugins) do
             if type(pm) == "table" then
-                local name = pm.name
-                if type(name) == "string" and not seen_keys[name] and not _BUILTIN_SKIP[name] then
-                    -- Use the plugin class table as the "instance" for callback probing.
-                    -- _getPluginCallback calls are wrapped in pcall internally; methods that
-                    -- need self.ui will crash gracefully and fall through to special-cases.
-                    local cb, title, method = _getPluginCallback(pm, name)
-                    if cb then
-                        if not title or title == "" then
-                            title = pm.fullname or _pluginDisplayName(name)
-                        end
-                        seen_keys[name] = true
-                        results[#results + 1] = {
-                            fm_key = name, title = title, callback = cb, method = method,
-                        }
-                        logger.dbg("[simpleui] _getPluginList: ep-class found:", name, method)
+                if plugins_scan_dir == "" then
+                    local p = pm.path or pm.module_path
+                    if type(p) == "string" and p:match("%.koplugin") then
+                        plugins_scan_dir = p:match("^(.*/)") or ""
                     end
                 end
+                addPlugin(pm.name, pm)
             end
         end
     end
 
-    -- Source 4: lfs.dir scan of the plugins/ directory.
-    -- _plugins_dir is derived from this file's path at module load time.  When the plugin
-    -- is accessed via a symlink (emulator), that path may not contain "plugins/" so
-    -- _plugins_dir is "".  In that case, try to derive it from enabled_plugins paths.
-    local plugins_scan_dir = _plugins_dir
-    if plugins_scan_dir == "" and type(enabled_plugins) == "table" then
-        for _, pm in ipairs(enabled_plugins) do
-            if type(pm) == "table" then
-                local p = pm.path or pm.module_path
-                if type(p) == "string" and p:match("%.koplugin") then
-                    -- e.g. "/root/koreader/plugins/appstore.koplugin" → "/root/koreader/plugins/"
-                    plugins_scan_dir = p:match("^(.*/)") or ""
-                    if plugins_scan_dir ~= "" then break end
-                end
-            end
-        end
-    end
-
-    if plugins_scan_dir ~= "" then
-        local attr = lfs.attributes(plugins_scan_dir)
-        if attr and attr.mode == "directory" then
-            for entry in lfs.dir(plugins_scan_dir) do
-                if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
-                    local plugin_path = plugins_scan_dir .. entry
-                    local meta_path = plugin_path .. "/_meta.lua"
-                    local main_path = plugin_path .. "/main.lua"
-                    if lfs.attributes(meta_path) and lfs.attributes(main_path) then
-                        local ok_meta, meta = pcall(dofile, meta_path)
-                        local ok_main, main_mod = pcall(dofile, main_path)
-                        if ok_meta and meta and type(meta) == "table" and type(main_mod) == "table" then
-                            local name  = meta.name or entry:gsub("%.koplugin$", "")
-                            if not seen_keys[name] and not _BUILTIN_SKIP[name] then
-                                local title  = meta.fullname or _pluginDisplayName(entry)
-                                local method, cb = _getPluginEntryPoint(main_mod)
-                                if cb then
-                                    seen_keys[name] = true
-                                    results[#results + 1] = {
-                                        fm_key = name, title = title, callback = cb, method = method,
-                                    }
-                                    logger.dbg("[simpleui] _getPluginList: fs-dir found:", entry, "->", title)
-                                end
-                            end
+    -- Source 4: lfs.dir scan of plugins_scan_dir (_plugins_dir, or derived above).
+    if lfs.attributes(plugins_scan_dir, "mode") == "directory" then
+        for entry in lfs.dir(plugins_scan_dir) do
+            if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
+                local plugin_path = plugins_scan_dir .. entry
+                local ok_meta, meta     = pcall(dofile, plugin_path .. "/_meta.lua")
+                local ok_main, main_mod = pcall(dofile, plugin_path .. "/main.lua")
+                if ok_meta and type(meta) == "table" and ok_main and type(main_mod) == "table" then
+                    local name = meta.name or entry:gsub("%.koplugin$", "")
+                    if not seen_keys[name] and not _BUILTIN_SKIP[name] then
+                        local title = meta.fullname or _pluginDisplayName(entry)
+                        local method, cb = _getPluginEntryPoint(main_mod)
+                        if cb then
+                            seen_keys[name] = true
+                            results[#results + 1] = {
+                                fm_key = name, title = title, callback = cb, method = method,
+                            }
+                            logger.dbg("[simpleui] _getPluginList: fs-dir found:", entry, "->", title)
                         end
                     end
                 end
