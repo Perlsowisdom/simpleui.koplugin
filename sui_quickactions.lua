@@ -234,21 +234,6 @@ end
 -- Lazy scan: build plugin list on first use, not at boot time
 local _cached_plugin_list = nil
 
--- FM-internal component keys that must be excluded from plugin scanning.
-local _fm_internal_keys = {
-    file_chooser   = true,
-    collections    = true,
-    menu           = true,
-    copy_password  = true,
-}
-
--- Returns true for FM-internal keys that are not real KOReader plugins.
-local function _isFMInternalKey(k)
-    if _fm_internal_keys[k] then return true end
-    if k:match("^file_chooser") then return true end
-    if k:match("^collection") then return true end
-    return false
-end
 
 -- Entry-point method priority list (used by _getPluginEntryPoint).
 -- Methods that open a fullscreen view/dialog, plus ones used by specific plugins.
@@ -343,9 +328,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         local buttons = {
             {
                 text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
-                callback = function()
-                    openIconPicker()
-                end,
+                callback = openIconPicker,
             },
             {
                 text = _("Cancel"),
@@ -580,10 +563,8 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         UIManager:show(plugin._qa_dispatcher_picker)
     end
 
-    -- Dismiss any lingering InfoMessages (e.g. httpinspector port-conflict
-    -- notices) that would physically block buttons in our dialog.
-    -- KOReader's Widget:new() calls self:extend(o) which does setmetatable(o, self),
-    -- so getmetatable(instance) == InfoMessage for any InfoMessage:new{} instance.
+    -- Dismiss any lingering InfoMessages (e.g. httpinspector port-conflict notices)
+    -- that would physically block buttons in our dialog.
     local _to_close = {}
     for _, w in ipairs(UIManager._window_stack or {}) do
         local wgt = w.widget
