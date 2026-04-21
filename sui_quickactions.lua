@@ -234,6 +234,21 @@ end
 -- Lazy scan: build plugin list on first use, not at boot time
 local _cached_plugin_list = nil
 
+-- FM-internal component keys that must be excluded from plugin scanning.
+local _fm_internal_keys = {
+    file_chooser   = true,
+    collections    = true,
+    menu           = true,
+    copy_password  = true,
+}
+
+-- Returns true for FM-internal keys that are not real KOReader plugins.
+local function _isFMInternalKey(k)
+    if _fm_internal_keys[k] then return true end
+    if k:match("^file_chooser") then return true end
+    if k:match("^collection") then return true end
+    return false
+end
 
 -- Entry-point method priority list (used by _getPluginEntryPoint).
 -- Methods that open a fullscreen view/dialog, plus ones used by specific plugins.
@@ -256,6 +271,53 @@ local function _getPluginEntryPoint(inst)
         if type(inst[m]) == "function" then return m, inst[m] end
     end
     return nil, nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Dispatcher action scanner — shared by showQuickActionDialog and
+-- showDispatcherPickerForTab (must be defined before both callers).
+-- ---------------------------------------------------------------------------
+
+local function _scanDispatcherActions()
+    local ok_d, Dispatcher = pcall(require, "dispatcher")
+    if not ok_d or not Dispatcher then return {} end
+    pcall(function() Dispatcher:init() end)
+    local settingsList, dispatcher_menu_order
+    pcall(function()
+        local fn_idx = 1
+        while true do
+            local name, val = debug.getupvalue(Dispatcher.registerAction, fn_idx)
+            if not name then break end
+            if name == "settingsList" then settingsList = val end
+            if name == "dispatcher_menu_order" then dispatcher_menu_order = val end
+            fn_idx = fn_idx + 1
+        end
+    end)
+    if type(settingsList) ~= "table" then return {} end
+    local order = (type(dispatcher_menu_order) == "table" and dispatcher_menu_order)
+        or (function()
+            local t = {}
+            for k in pairs(settingsList) do t[#t+1] = k end
+            table.sort(t)
+            return t
+        end)()
+    local results = {}
+    for _, action_id in ipairs(order) do
+        local def = settingsList[action_id]
+        if type(def) == "table" and def.title and def.category == "none"
+                and def.general == true then
+            local passes_condition = true
+            if def.condition ~= nil then
+                local ok_c, cond_val = pcall(def.condition)
+                passes_condition = ok_c and cond_val == true
+            end
+            if passes_condition then
+                results[#results + 1] = { id = action_id, title = tostring(def.title) }
+            end
+        end
+    end
+    table.sort(results, function(a, b) return a.title < b.title end)
+    return results
 end
 
 -- ---------------------------------------------------------------------------
@@ -288,6 +350,9 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         return _("Icon") .. ": " .. stem
     end
 
+    -- Forward declaration: defined below (after helpers) so callbacks above can close over it.
+    local _buildSaveDialog
+
     local function commitQA(final_label, path, coll, default_icon, fm_key, fm_method, dispatcher_action)
         local final_id = qa_id or Config.nextCustomQAId()
         if not qa_id then
@@ -303,71 +368,6 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     end
 
     local sanitize = Config.sanitizeLabel
-
-    local function _buildSaveDialog(spec)
-        local title = spec.title or dlg_title
-        local active_dialog = nil
-
-        local function openIconPicker()
-            if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
-            QA.showIconPicker(chosen_icon, function(new_icon)
-                chosen_icon = new_icon
-                _buildSaveDialog(spec)
-            end, spec.icon_default_label or _("Icon"), plugin, "_qa_icon_picker")
-        end
-
-        local fields = {}
-        for _fi, f in ipairs(spec.fields) do
-            fields[#fields + 1] = {
-                description = f.description,
-                text = f.text or "",
-                hint = f.hint,
-            }
-        end
-
-        -- MultiInputDialog expects buttons as a list of rows, each row being
-        -- a list of button objects: { { {btn1, btn2}, {btn3} } }.
-        local buttons = {
-            {
-                {
-                    text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
-                    callback = openIconPicker,
-                },
-                {
-                    text = _("Cancel"),
-                    callback = function()
-                        UIManager:close(active_dialog)
-                        active_dialog = nil
-                    end,
-                },
-                {
-                    text = _("Save"),
-                    is_enter_default = true,
-                    callback = function()
-                        local inputs = active_dialog:getFields()
-                        if spec.validate then
-                            local err = spec.validate(inputs)
-                            if err then
-                                UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
-                                return
-                            end
-                        end
-                        UIManager:close(active_dialog)
-                        active_dialog = nil
-                        spec.on_save(inputs)
-                    end,
-                },
-            },
-        }
-
-        active_dialog = MultiInputDialog:new{
-            title = title,
-            fields = fields,
-            buttons = buttons,
-        }
-        UIManager:show(active_dialog)
-        pcall(function() active_dialog:onShowKeyboard() end)
-    end
 
     local function openPathChooser(plugin)
         UIManager:show(PathChooser:new{
@@ -426,8 +426,17 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
     local function openPluginPicker(plugin)
         if not plugin then
-            local SimpleUI = require("simpleui")
-            plugin = SimpleUI
+            -- Fallback: find the SimpleUI plugin via the FileManager instance.
+            -- Never use require("simpleui") — that attempts to load a C .so which does not exist.
+            local fm_ok, fm_mod = pcall(require, "apps/filemanager/filemanager")
+            if fm_ok and fm_mod and fm_mod.instance then
+                local fm = fm_mod.instance
+                for i = 1, #fm do
+                    if fm[i] and fm[i].name == "filemanagersimpleui" then
+                        plugin = fm[i]; break
+                    end
+                end
+            end
         end
         -- Always re-scan when opening the picker — FM is fully initialized
         -- and registered_widgets is populated. Bypassing cache avoids stale
@@ -567,16 +576,73 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         UIManager:show(plugin._qa_dispatcher_picker)
     end
 
-    -- Dismiss any lingering InfoMessages (e.g. httpinspector port-conflict notices)
-    -- that would physically block buttons in our dialog.
-    local _to_close = {}
-    for _, w in ipairs(UIManager._window_stack or {}) do
-        local wgt = w.widget
-        if wgt and getmetatable(wgt) == InfoMessage then
-            _to_close[#_to_close + 1] = wgt
+    -- Build and show the MultiInputDialog for naming/icon selection.
+    -- Defined here so it can access iconButtonLabel, chosen_icon, dlg_title,
+    -- TOTAL_H, plugin, MultiInputDialog, InfoMessage, UIManager (all upvalues).
+    _buildSaveDialog = function(spec)
+        local title = spec.title or dlg_title
+        local active_dialog = nil
+
+        local function openIconPicker()
+            if active_dialog then UIManager:close(active_dialog); active_dialog = nil end
+            QA.showIconPicker(chosen_icon, function(new_icon)
+                chosen_icon = new_icon
+                _buildSaveDialog(spec)
+            end, spec.icon_default_label or _("Icon"), plugin, "_qa_icon_picker")
         end
+
+        local fields = {}
+        for _fi, f in ipairs(spec.fields) do
+            fields[#fields + 1] = {
+                description = f.description,
+                text = f.text or "",
+                hint = f.hint,
+            }
+        end
+
+        -- MultiInputDialog requires buttons as { { {btn, btn, btn} } }
+        -- (list of rows, each row a list of button specs).
+        local buttons = { {
+            {
+                text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
+                callback = function()
+                    openIconPicker()
+                end,
+            },
+            {
+                text = _("Cancel"),
+                callback = function()
+                    UIManager:close(active_dialog)
+                    active_dialog = nil
+                end,
+            },
+            {
+                text = _("Save"),
+                is_enter_default = true,
+                callback = function()
+                    local inputs = active_dialog:getFields()
+                    if spec.validate then
+                        local err = spec.validate(inputs)
+                        if err then
+                            UIManager:show(InfoMessage:new{ text = err, timeout = 3 })
+                            return
+                        end
+                    end
+                    UIManager:close(active_dialog)
+                    active_dialog = nil
+                    spec.on_save(inputs)
+                end,
+            },
+        } }
+
+        active_dialog = MultiInputDialog:new{
+            title = title,
+            fields = fields,
+            buttons = buttons,
+        }
+        UIManager:show(active_dialog)
+        pcall(function() active_dialog:onShowKeyboard() end)
     end
-    for _, w in ipairs(_to_close) do UIManager:close(w) end
 
     local choice_dialog
     choice_dialog = ButtonDialog:new{
@@ -1085,27 +1151,16 @@ function QA._getPluginList()
         logger.dbg("[simpleui] _getPluginList: found plugin:", name, "method:", method or "callback")
     end
 
-    -- Build an allowlist from enabled_plugins so Source 1 only picks up real plugins,
-    -- not built-in FM components whose key names vary across devices/builds.
-    local plugin_name_set = {}
-    if type(enabled_plugins) == "table" then
-        for _, pm in ipairs(enabled_plugins) do
-            if type(pm) == "table" and type(pm.name) == "string" then
-                plugin_name_set[pm.name] = true
-            end
-        end
-    end
-
-    -- Collect from FM instance (covers plugins already attached to the running FM).
-    -- Use plugin_name_set as allowlist to exclude built-in FM components (readhistory,
-    -- reading_collection, filesearcher, etc.) that vary by device/build.
+    -- Collect from FM instance (covers all FM-registered plugins).
+    -- FM is instantiated lazily on first file-manager open; on emulator it
+    -- should be available by the time the user opens the QA menu.
     local fm = package.loaded["apps/filemanager/filemanager"]
     if fm and fm.instance then
         fm = fm.instance
     end
     if fm then
         for k, v in pairs(fm) do
-            if type(k) == "string" and type(v) == "table" and plugin_name_set[k] then
+            if type(k) == "string" and type(v) == "table" and not _isFMInternalKey(k) then
                 addPlugin(k, v)
             end
         end
@@ -1121,43 +1176,77 @@ function QA._getPluginList()
         end
     end
 
-    -- Source 3: enabled_plugins class tables (each has addToMainMenu, showBrowser, etc.).
-    -- NOTE: use `enabled_plugins` upvalue directly — the Source-2 `local PluginLoader`
-    -- shadows the outer one and may be nil under a different module key.
-    -- Also derives plugins_scan_dir for Source 4 in the same pass.
-    local plugins_scan_dir = _plugins_dir
+    -- Source 3: enabled_plugins class tables used directly as plugin "instances".
+    -- Each entry in enabled_plugins is the loaded plugin class table — it has
+    -- .name, .fullname, .path, and all methods (addToMainMenu, showBrowser, etc.).
+    -- NOTE: avoid referencing the `PluginLoader` local here — it is shadowed by the
+    -- Source-2 re-declaration above; use the `enabled_plugins` upvalue directly.
     if type(enabled_plugins) == "table" then
         for _, pm in ipairs(enabled_plugins) do
             if type(pm) == "table" then
-                if plugins_scan_dir == "" then
-                    local p = pm.path or pm.module_path
-                    if type(p) == "string" and p:match("%.koplugin") then
-                        plugins_scan_dir = p:match("^(.*/)") or ""
+                local name = pm.name
+                if type(name) == "string" and not seen_keys[name] and not _BUILTIN_SKIP[name] then
+                    -- Use the plugin class table as the "instance" for callback probing.
+                    -- _getPluginCallback calls are wrapped in pcall internally; methods that
+                    -- need self.ui will crash gracefully and fall through to special-cases.
+                    local cb, title, method = _getPluginCallback(pm, name)
+                    if cb then
+                        if not title or title == "" then
+                            title = pm.fullname or _pluginDisplayName(name)
+                        end
+                        seen_keys[name] = true
+                        results[#results + 1] = {
+                            fm_key = name, title = title, callback = cb, method = method,
+                        }
+                        logger.dbg("[simpleui] _getPluginList: ep-class found:", name, method)
                     end
                 end
-                addPlugin(pm.name, pm)
             end
         end
     end
 
-    -- Source 4: lfs.dir scan of plugins_scan_dir (_plugins_dir, or derived above).
-    if lfs.attributes(plugins_scan_dir, "mode") == "directory" then
-        for entry in lfs.dir(plugins_scan_dir) do
-            if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
-                local plugin_path = plugins_scan_dir .. entry
-                local ok_meta, meta     = pcall(dofile, plugin_path .. "/_meta.lua")
-                local ok_main, main_mod = pcall(dofile, plugin_path .. "/main.lua")
-                if ok_meta and type(meta) == "table" and ok_main and type(main_mod) == "table" then
-                    local name = meta.name or entry:gsub("%.koplugin$", "")
-                    if not seen_keys[name] and not _BUILTIN_SKIP[name] then
-                        local title = meta.fullname or _pluginDisplayName(entry)
-                        local method, cb = _getPluginEntryPoint(main_mod)
-                        if cb then
-                            seen_keys[name] = true
-                            results[#results + 1] = {
-                                fm_key = name, title = title, callback = cb, method = method,
-                            }
-                            logger.dbg("[simpleui] _getPluginList: fs-dir found:", entry, "->", title)
+    -- Source 4: lfs.dir scan of the plugins/ directory.
+    -- _plugins_dir is derived from this file's path at module load time.  When the plugin
+    -- is accessed via a symlink (emulator), that path may not contain "plugins/" so
+    -- _plugins_dir is "".  In that case, try to derive it from enabled_plugins paths.
+    local plugins_scan_dir = _plugins_dir
+    if plugins_scan_dir == "" and type(enabled_plugins) == "table" then
+        for _, pm in ipairs(enabled_plugins) do
+            if type(pm) == "table" then
+                local p = pm.path or pm.module_path
+                if type(p) == "string" and p:match("%.koplugin") then
+                    -- e.g. "/root/koreader/plugins/appstore.koplugin" → "/root/koreader/plugins/"
+                    plugins_scan_dir = p:match("^(.*/)") or ""
+                    if plugins_scan_dir ~= "" then break end
+                end
+            end
+        end
+    end
+
+    if plugins_scan_dir ~= "" then
+        local attr = lfs.attributes(plugins_scan_dir)
+        if attr and attr.mode == "directory" then
+            for entry in lfs.dir(plugins_scan_dir) do
+                if entry ~= "." and entry ~= ".." and entry:match("%.koplugin$") then
+                    local plugin_path = plugins_scan_dir .. entry
+                    local meta_path = plugin_path .. "/_meta.lua"
+                    local main_path = plugin_path .. "/main.lua"
+                    if lfs.attributes(meta_path) and lfs.attributes(main_path) then
+                        local ok_meta, meta = pcall(dofile, meta_path)
+                        local ok_main, main_mod = pcall(dofile, main_path)
+                        if ok_meta and meta and type(meta) == "table" and type(main_mod) == "table" then
+                            local name  = meta.name or entry:gsub("%.koplugin$", "")
+                            if not seen_keys[name] and not _BUILTIN_SKIP[name] then
+                                local title  = meta.fullname or _pluginDisplayName(entry)
+                                local method, cb = _getPluginEntryPoint(main_mod)
+                                if cb then
+                                    seen_keys[name] = true
+                                    results[#results + 1] = {
+                                        fm_key = name, title = title, callback = cb, method = method,
+                                    }
+                                    logger.dbg("[simpleui] _getPluginList: fs-dir found:", entry, "->", title)
+                                end
+                            end
                         end
                     end
                 end
@@ -1176,51 +1265,6 @@ function QA._getPluginList()
     return results
 end
 
-
-
--- Scans Dispatcher for available system actions.
--- Defined here — before showDispatcherPickerForTab — so Lua captures it as an upvalue.
-local function _scanDispatcherActions()
-    local ok_d, Dispatcher = pcall(require, "dispatcher")
-    if not ok_d or not Dispatcher then return {} end
-    pcall(function() Dispatcher:init() end)
-    local settingsList, dispatcher_menu_order
-    pcall(function()
-        local fn_idx = 1
-        while true do
-            local name, val = debug.getupvalue(Dispatcher.registerAction, fn_idx)
-            if not name then break end
-            if name == "settingsList" then settingsList = val end
-            if name == "dispatcher_menu_order" then dispatcher_menu_order = val end
-            fn_idx = fn_idx + 1
-        end
-    end)
-    if type(settingsList) ~= "table" then return {} end
-    local order = (type(dispatcher_menu_order) == "table" and dispatcher_menu_order)
-        or (function()
-            local t = {}
-            for k in pairs(settingsList) do t[#t+1] = k end
-            table.sort(t)
-            return t
-        end)()
-    local results = {}
-    for _, action_id in ipairs(order) do
-        local def = settingsList[action_id]
-        if type(def) == "table" and def.title and def.category == "none"
-                and def.general == true then
-            local passes_condition = true
-            if def.condition ~= nil then
-                local ok_c, cond_val = pcall(def.condition)
-                passes_condition = ok_c and cond_val == true
-            end
-            if passes_condition then
-                results[#results + 1] = { id = action_id, title = tostring(def.title) }
-            end
-        end
-    end
-    table.sort(results, function(a, b) return a.title < b.title end)
-    return results
-end
 
 function QA.showDispatcherPickerForTab(plugin, pos)
     local actions = _scanDispatcherActions()
