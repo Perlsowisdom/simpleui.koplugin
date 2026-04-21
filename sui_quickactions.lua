@@ -234,18 +234,18 @@ end
 -- Lazy scan: build plugin list on first use, not at boot time
 local _cached_plugin_list = nil
 
--- FM-internal component keys that must be excluded from plugin scanning.
+-- FM-internal component keys (and key prefixes) that are not real plugins.
+-- Exact keys cover the common names; prefix patterns catch variants like
+-- "file_chooser_tab" or "collection_view" that appear on some builds.
 local _fm_internal_keys = {
     file_chooser   = true,
     collections    = true,
     menu           = true,
     copy_password  = true,
 }
-
--- Returns true for FM-internal keys that are not real KOReader plugins.
 local function _isFMInternalKey(k)
     if _fm_internal_keys[k] then return true end
-    if k:match("^file_chooser") then return true end
+    if k:match("^file_chooser_") then return true end
     if k:match("^collection") then return true end
     return false
 end
@@ -350,8 +350,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         return _("Icon") .. ": " .. stem
     end
 
-    -- Forward declaration: defined below (after helpers) so callbacks above can close over it.
-    local _buildSaveDialog
+    local _buildSaveDialog  -- assigned below, after all inner functions
 
     local function commitQA(final_label, path, coll, default_icon, fm_key, fm_method, dispatcher_action)
         local final_id = qa_id or Config.nextCustomQAId()
@@ -427,13 +426,13 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
     local function openPluginPicker(plugin)
         if not plugin then
             -- Fallback: find the SimpleUI plugin via the FileManager instance.
-            -- Never use require("simpleui") — that attempts to load a C .so which does not exist.
-            local fm_ok, fm_mod = pcall(require, "apps/filemanager/filemanager")
-            if fm_ok and fm_mod and fm_mod.instance then
-                local fm = fm_mod.instance
-                for i = 1, #fm do
-                    if fm[i] and fm[i].name == "filemanagersimpleui" then
-                        plugin = fm[i]; break
+            -- FM stores plugin instances as string-keyed fields; numeric iteration
+            -- with #fm is unreliable on mixed tables — use pairs() instead.
+            local fm_mod = package.loaded["apps/filemanager/filemanager"]
+            if fm_mod and fm_mod.instance then
+                for _, v in pairs(fm_mod.instance) do
+                    if type(v) == "table" and v.name == "filemanagersimpleui" then
+                        plugin = v; break
                     end
                 end
             end
@@ -605,9 +604,7 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         local buttons = { {
             {
                 text = iconButtonLabel(spec.icon_default_label or _("Icon: Default")),
-                callback = function()
-                    openIconPicker()
-                end,
+                callback = openIconPicker,
             },
             {
                 text = _("Cancel"),
