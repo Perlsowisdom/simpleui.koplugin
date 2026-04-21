@@ -580,6 +580,19 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         UIManager:show(plugin._qa_dispatcher_picker)
     end
 
+    -- Dismiss any lingering InfoMessages (e.g. httpinspector port-conflict
+    -- notices) that would physically block buttons in our dialog.
+    -- KOReader's Widget:new() calls self:extend(o) which does setmetatable(o, self),
+    -- so getmetatable(instance) == InfoMessage for any InfoMessage:new{} instance.
+    local _to_close = {}
+    for _, w in ipairs(UIManager._window_stack or {}) do
+        local wgt = w.widget
+        if wgt and getmetatable(wgt) == InfoMessage then
+            _to_close[#_to_close + 1] = wgt
+        end
+    end
+    for _, w in ipairs(_to_close) do UIManager:close(w) end
+
     local choice_dialog
     choice_dialog = ButtonDialog:new{
         title = _("Quick Action Type"),
