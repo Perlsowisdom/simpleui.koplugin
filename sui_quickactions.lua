@@ -545,8 +545,18 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
 
     local function openDispatcherPicker(plugin)
         if not plugin then
-            local SimpleUI = require("simpleui")
-            plugin = SimpleUI
+            local fm_mod = package.loaded["apps/filemanager/filemanager"]
+            if fm_mod and fm_mod.instance then
+                for _, v in pairs(fm_mod.instance) do
+                    if type(v) == "table" and v.name == "filemanagersimpleui" then
+                        plugin = v; break
+                    end
+                end
+            end
+        end
+        if not plugin then
+            UIManager:show(InfoMessage:new{ text = _("SimpleUI plugin not ready."), timeout = 3 })
+            return
         end
         local actions = _scanDispatcherActions()
         if #actions == 0 then
@@ -647,13 +657,13 @@ function QA.showQuickActionDialog(plugin, qa_id, on_done)
         width_factor = 0.7,
         buttons = {
             {{ text = _("Collection"), enabled = #collections > 0,
-               callback = function() UIManager:close(choice_dialog); openCollectionPicker() end }},
+               callback = function() UIManager:close(choice_dialog); openCollectionPicker(plugin) end }},
             {{ text = _("Folder"),
                callback = function() UIManager:close(choice_dialog); openPathChooser() end }},
             {{ text = _("Plugin"),
                callback = function() UIManager:close(choice_dialog); openPluginPicker(plugin) end }},
             {{ text = _("System Actions"),
-               callback = function() UIManager:close(choice_dialog); openDispatcherPicker() end }},
+               callback = function() UIManager:close(choice_dialog); openDispatcherPicker(plugin) end }},
             {{ text = _("Cancel"),
                callback = function() UIManager:close(choice_dialog) end }},
         }
@@ -921,10 +931,15 @@ end
 -- spec.icon_default_label
 -- spec.title (optional)
 -- Builtins to skip in plugin picker (already surfaced as built-in tabs).
+-- Plugins whose functionality is either surfaced through a dedicated Quick Action
+-- type (collections), is a pure internal/system module (menu, simpleui, etc.),
+-- or causes conflicts if loaded as a generic plugin callback.
+-- history, filesearcher, folder_shortcuts, bookinfo, dictionary, wikipedia are
+-- intentionally NOT skipped — they should appear in the Plugin picker.
 local _BUILTIN_SKIP = {
-    history = true, collections = true, filesearcher = true,
-    folder_shortcuts = true, dictionary = true, wikipedia = true,
-    bookinfo = true, menu = true, screenshot = true,
+    collections = true,   -- has dedicated "Collection" picker in choice_dialog
+    menu = true,          -- FM menu module — not a user-facing action
+    screenshot = true,    -- background service, no UI entry point
     devicestatus = true, devicelistener = true, networklistener = true,
     languagesupport = true, simpleui = true,
 }
